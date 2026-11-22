@@ -12,6 +12,7 @@ policies, underwater sales) where money must not appear or vanish without a ledg
 """
 
 import unittest
+from pathlib import Path
 
 from ..account.bank import BankAccount
 from ..account.brokerage import BrokerageAccount
@@ -22,9 +23,11 @@ from ..checks import (
     check_conservation,
     conservation_records,
 )
+from ..config.financial_config import FinancialConfig
+from ..housing.apartment import Apartment
 from ..housing.home import Home, HomeExpenses, Mortgage
 from ..insurance.social_security import SocialSecurity
-from ..ledger import FlowKind, LedgerEntry, household_balance_sheet
+from ..ledger import FlowKind, LedgerEntry, account_label, debt_label, household_balance_sheet
 from ..lifeevents import LifeEvent, LifeEvents
 from ..model import LifeModel
 from ..people.family import Family
@@ -98,6 +101,51 @@ class TestLedgerEntries(unittest.TestCase):
             self.assertEqual(sale.cause, f"pay 2026-{sale.month:02d} bills")
         self.assertTrue(all(sale.is_transfer for sale in sales))
         assert_conservation(model)
+
+
+class TestMonthlyBillFunding(unittest.TestCase):
+    def _model(self, first_balance, second_balance):
+        config = FinancialConfig(config_file=str(Path(__file__).parent / "fixtures" / "test_config.yaml"))
+        model = LifeModel(start_year=2026, end_year=2026, config=config, collect="month")
+        person = _person(model, spending=12_000)
+        first = BankAccount(owner=person, company="First Bank", balance=first_balance, interest_pct=0)
+        second = BankAccount(owner=person, company="Second Bank", balance=second_balance, interest_pct=0)
+        return model, person, first, second
+
+    def test_spending_and_rent_post_from_the_banks_that_paid(self):
+        model, person, first, second = self._model(600, 1_200)
+        Apartment(owner=person, name="Apartment", rent_monthly=500)
+        model.step()
+
+        bills = [
+            (row.kind, row.from_account, row.amount) for row in model.ledger if row.kind in ("spending", "housing")
+        ]
+        self.assertEqual(
+            bills,
+            [
+                ("spending", account_label(first), 600),
+                ("spending", account_label(second), 400),
+                ("housing", account_label(second), 500),
+            ],
+        )
+        self.assertEqual((first.balance, second.balance), (0, 300))
+        self.assertEqual(account_residuals(model, 2026, month=1), {})
+        assert_conservation(model, monthly=True)
+
+    def test_unfunded_bill_amount_still_reconciles_through_debt(self):
+        model, person, first, second = self._model(300, 500)
+        model.step()
+
+        paid = [(row.from_account, row.amount) for row in model.ledger if row.kind == "spending"]
+        self.assertEqual(paid, [(account_label(first), 300), (account_label(second), 500), (account_label(first), 200)])
+        (borrowing,) = [row for row in model.ledger if row.kind == "borrow"]
+        self.assertEqual(
+            (borrowing.from_account, borrowing.to_account, borrowing.amount),
+            (debt_label(person), account_label(first), 200),
+        )
+        self.assertEqual((first.balance, second.balance, person.debt), (0, 0, 200))
+        self.assertEqual(account_residuals(model, 2026, month=1), {})
+        assert_conservation(model, monthly=True)
 
 
 class TestTaxOutflowMatchesTheReturn(unittest.TestCase):
