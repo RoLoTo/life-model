@@ -510,16 +510,25 @@ def _refinance(builder: "_Builder", event: s.RefinanceEvent) -> None:
 
 
 def _renew_mortgage(builder: "_Builder", event: s.MortgageRenewalEvent) -> None:
+    from datetime import date
+
     home = builder.built.items.get(event.home)
     if home is None:
         raise ValueError(f"Home {event.home!r} must exist before its mortgage can be renewed")
     if home.sold or home.mortgage is None or home.mortgage.principal <= 0:
         builder.model.event_log.add(Event(f"mortgage renewal skipped: {event.home} has no outstanding mortgage"))
         return
+    new_terms = event.prepayment_privilege
+    privilege = (
+        new_terms.resolve(date(event.at.year, event.at.month, 1), home.mortgage.principal)
+        if isinstance(new_terms, s.MortgagePrepaymentPrivilege)
+        else new_terms
+    )
     home.mortgage.renew(
         rate_pct=event.rate_pct,
         rate_compounding=event.rate_compounding,
         amortization_months=event.amortization_months,
+        prepayment_privilege=privilege,
     )
 
 

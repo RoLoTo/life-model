@@ -46,6 +46,7 @@ import json
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, cast
 
 from ..config.financial_config import FinancialConfig
@@ -910,14 +911,18 @@ class _Builder:
         if home.mortgage is not None:
             m = home.mortgage
             terms = self._loan_terms(m)
+            privilege = m.prepayment_privilege
+            as_of = date(self.model.year, self.model.month, 1)
             mortgage = Mortgage(
                 start_year=m.start_year if m.start_year is not None else self.model.year,
                 escrow_monthly=m.escrow_monthly,
                 rate_compounding=m.rate_compounding,
+                prepayment_privilege=None if privilege is None else privilege.resolve(as_of, m.original_amount),
                 **terms,
             )
             self._remember_loan(mortgage, m)
             mortgage.spec_start_year = m.start_year
+            mortgage.spec_prepayment_privilege = privilege
         e = home.expenses
         expenses = HomeExpenses(
             model=self.model,
