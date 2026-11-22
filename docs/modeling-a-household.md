@@ -49,7 +49,12 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 | Health insurance after a job ends | `insurance[]` `kind: health` with `premium_annual`, `coverage_start_age` (the retirement age) and `coverage_end_age: 64` (for marketplace coverage add `marketplace: {slcsp_monthly, advance_monthly}`, which earns the ACA premium tax credit); `healthcare: {medicare: true}` from 65. Payroll premiums stop with the job |
 | Term life policy | `kind: life`, `policy: term`, `issue_year` and `issue_month` (premiums on the anniversary; coverage ends at the last anniversary) |
 | Marriage | `relationships.marriages[]`: `spouses` (the first is the tax-unit head), `filing_status` |
-| Plans | `events[]`: `at: {year}` / `{age}` / `{relative: {after, years}}`, `person`, `action` (`retire`, `change_job`, `move`, `buy_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `contribute`, `convert_to_roth`, `claim_social_security`, `refinance`, `heloc_draw`, `disability`, ...) |
+| Plans | `events[]`: `at: {year}` / `{age}` / `{relative: {after, years}}`, `person`, `action` (`retire`, `change_job`, `move`, `buy_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `contribute`, `convert_to_roth`, `claim_social_security`, `refinance`, `renew_mortgage`, `heloc_draw`, `disability`, ...) |
+
+Schedule `renew_mortgage` with the borrower's `person`, the `home` id, and an effective month such as
+`at: 2030-07`. The new `rate_pct` applies to that month's regular payment using the current balance and
+remaining amortization. Set `amortization_months` to change the payment count or
+`rate_compounding: semiannual` to use a semiannual quote. Renewal adds no fees or cash-out.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that

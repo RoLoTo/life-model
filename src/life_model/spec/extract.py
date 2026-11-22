@@ -1151,11 +1151,14 @@ class _Extractor:
             key: min(pending, key=lambda when: (when[0], when[1] or 0, when[2] or 1)) for key, pending in dates.items()
         }
         by_spec_id = {source.id: source for source in sources if isinstance(source, s.EventBase) and source.id}
-        retimed = []
+        retimed: list[s.Marriage | s.Event] = []
         for source in sources:
             first_year, first_month, first_day = first_pending[id(source)]
             if isinstance(source, s.Marriage):
                 retimed.append(source.model_copy(update={"year": first_year}))
+                continue
+            if isinstance(source, s.MortgageRenewalEvent):
+                retimed.append(source)  # Always dated in an explicit calendar month.
                 continue
             at = s.At(year=first_year, month=first_month, day=first_day)
             relative = source.at.relative

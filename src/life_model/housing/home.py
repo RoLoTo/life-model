@@ -4,6 +4,8 @@
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
 import html
+import math
+from datetime import date
 from typing import ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
@@ -778,6 +780,48 @@ class Mortgage(Loan):
         average = self.average_balance_this_year
         acquisition = average if self.acquisition_cap is None else min(average, self.acquisition_cap)
         return acquisition, min(acquisition, self.grandfathered_cap)
+
+    def renew(
+        self,
+        *,
+        rate_pct: float,
+        rate_compounding: MortgageRateCompounding = "monthly",
+        amortization_months: int | None = None,
+    ) -> None:
+        """Reprice the outstanding principal before the current month's payment.
+
+        Use the remaining scheduled months unless a new amortization is given.
+        The balance, acquisition debt classification and payment history carry forward.
+        """
+        if self.principal <= 0:
+            return
+        remaining = self.remaining_months if amortization_months is None else amortization_months
+        if remaining <= 0:
+            raise ValueError("A mortgage renewal requires a positive amortization in months")
+        if not math.isfinite(rate_pct) or rate_pct < 0:
+            raise ValueError("A mortgage renewal requires a finite, non-negative rate")
+        rate = mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
+        effective_date = date(self.model.year, self.model.month, 1)
+        # Payment one is in this month; snapshots use the actual count of payments made.
+        self._reset_loan_schedule(self.principal, rate, remaining)
+        self.quoted_rate_pct = rate_pct
+        self.rate_compounding = rate_compounding
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_RENEWED,
+                person=self.person,
+                amount=self.principal,
+                account=self,
+                cause="mortgage renewal",
+                date=effective_date.isoformat(),
+                rate_pct=rate_pct,
+                rate_compounding=rate_compounding,
+                amortization_months=remaining,
+                monthly_payment=self.monthly_payment,
+                message=f"{self.person.name} renewed the mortgage at {rate_pct:g}% for {remaining} payments "
+                f"(${self.monthly_payment:,.2f}/month)",
+            )
+        )
 
     def refinance(
         self,
