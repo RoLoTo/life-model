@@ -1208,7 +1208,7 @@ A one-time expense added to that year's spending.
 
 ## RecurringExpenseEvent
 
-An expense added every year from ``at`` through ``until`` (inclusive).
+An expense added every year from ``at`` through ``until`` (inclusive). The calendar day must exist in each year the expense runs. A February 29 expense can run once when its recurrence ends in the starting year.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|

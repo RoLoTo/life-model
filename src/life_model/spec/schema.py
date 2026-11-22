@@ -2996,7 +2996,11 @@ class OneTimeExpenseEvent(EventBase):
 
 
 class RecurringExpenseEvent(EventBase):
-    """An expense added every year from ``at`` through ``until`` (inclusive)."""
+    """An expense added every year from ``at`` through ``until`` (inclusive).
+
+    The calendar day must exist in each year the expense runs. A February 29 expense can run
+    once when its recurrence ends in the starting year.
+    """
 
     action: Literal["recurring_expense"]
     amount_annual: NonNegativeMoney = spec_field(description="Amount per year.", unit="USD/year")
