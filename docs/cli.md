@@ -51,7 +51,9 @@ the years with unpaid bills (`shortfall years ...: none` when there are none) an
 line (`conservation check: passed in every year`, or the years that failed, a model bug to report). `--collect month` also
 collects a row per month end (`RunResult.monthly_frame`: `Year`, `Month` and the model columns, flows
 for the year to date; `months` in the JSON summary), written as `monthly_frame` in `result.json` or
-`monthly.csv` / `monthly.parquet`. `--out DIR` writes
+`monthly.csv` / `monthly.parquet`. `--collect-positions` adds signed month-end balances by account
+and owner as `monthly_positions` in JSON or `monthly_positions.csv` / `monthly_positions.parquet`.
+`--out DIR` writes
 the whole result: `--format json` (default) writes `DIR/result.json` (one document: seed,
 deflators, the spec, every tax return, the model and agent frames, the ledger, the events and the
 balance sheets); `csv` writes `model.csv`, `agents.csv`, `ledger.csv`, `events.csv`,

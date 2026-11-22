@@ -7,10 +7,10 @@
 
 A result bundles the yearly model frame, the per-agent frame (with ``Year``, ``Name``, ``Type`` and
 ``Owner`` columns), every tax return, the cash-flow ledger, every typed event, the per-year and
-per-month balance-sheet summaries, the monthly model frame (``LifeModel(collect="month")``), the
-seed and (optionally) the household spec the model was built from. It
-exports to JSON, CSV or Parquet, loads back, converts to real (start-year) dollars and explains a
-year in prose.
+per-month balance-sheet summaries, the monthly model frame (``LifeModel(collect="month")``), optional
+month-end positions (``LifeModel(collect_positions=True)``), the seed and the household spec when
+known. It exports to JSON, CSV or Parquet, loads back, converts to real (start-year) dollars and
+explains a year in prose.
 
 Frames are built lazily from the model on first use, so ``run()`` stays cheap for callers that
 ignore its return value.
@@ -34,6 +34,19 @@ if TYPE_CHECKING:
 BALANCE_SHEET_COLUMNS = ("year", "opening_net_worth", "closing_net_worth", "inflows", "outflows")
 #: Columns of :attr:`RunResult.monthly_balance_sheets`.
 MONTHLY_BALANCE_SHEET_COLUMNS = ("year", "month", "opening_net_worth", "closing_net_worth", "inflows", "outflows")
+#: Columns of :attr:`RunResult.monthly_positions`.
+MONTHLY_POSITION_COLUMNS = (
+    "year",
+    "month",
+    "account",
+    "account_type",
+    "account_name",
+    "account_spec_id",
+    "owner_id",
+    "owner_name",
+    "owner_spec_id",
+    "balance",
+)
 #: Ledger kinds that are income (inflows shown under "Income" by :meth:`RunResult.explain`).
 _INCOME_KINDS = (
     "wage",
@@ -82,6 +95,7 @@ class RunResult:
         balance_sheets: pd.DataFrame | None = None,
         monthly_frame: pd.DataFrame | None = None,
         monthly_balance_sheets: pd.DataFrame | None = None,
+        monthly_positions: pd.DataFrame | None = None,
         seed: int | None = None,
         spec: Any | None = None,
         deflators: dict[int, float] | None = None,
@@ -97,6 +111,7 @@ class RunResult:
         self._balance_sheets = balance_sheets
         self._monthly_frame = monthly_frame
         self._monthly_balance_sheets = monthly_balance_sheets
+        self._monthly_positions = monthly_positions
         self.seed = seed
         #: The household spec the model was built from (a :class:`~life_model.spec.schema.HouseholdSpec`), when known.
         self.spec = spec
@@ -197,6 +212,36 @@ class RunResult:
         if self._monthly_frame is None and model is not None and model.collect == "month" and model.datacollector:
             self._monthly_frame = model.monthly_frame()
         return self._monthly_frame
+
+    @property
+    def monthly_positions(self) -> pd.DataFrame | None:
+        """Month-end balance-sheet lines by account and owner when collected, else None.
+
+        Amounts are signed. Every balance belongs to its recorded owner at that close, with one
+        row per line even for joint accounts and zero balances. Account labels match the ledger.
+        """
+        model = self._model
+        if self._monthly_positions is None and model is not None and model.collect_positions:
+            rows = []
+            for (year, month), period in model.month_balance_sheets.items():
+                sheet = period.closing
+                for account, identity in (sheet.position_details or {}).items():
+                    rows.append(
+                        {
+                            "year": year,
+                            "month": month,
+                            "account": account,
+                            "account_type": account.partition(":")[0],
+                            "account_name": identity.account_name,
+                            "account_spec_id": identity.account_spec_id,
+                            "owner_id": sheet.owners[account],
+                            "owner_name": identity.owner_name,
+                            "owner_spec_id": identity.owner_spec_id,
+                            "balance": sheet.lines[account],
+                        }
+                    )
+            self._monthly_positions = pd.DataFrame(rows, columns=list(MONTHLY_POSITION_COLUMNS))
+        return self._monthly_positions
 
     @property
     def monthly_balance_sheets(self) -> pd.DataFrame:
@@ -308,6 +353,7 @@ class RunResult:
             monthly_balance_sheets=deflate(
                 self.monthly_balance_sheets, ["opening_net_worth", "closing_net_worth", "inflows", "outflows"], "year"
             ),
+            monthly_positions=deflate(self.monthly_positions, ["balance"], "year"),
             seed=self.seed,
             spec=self.spec,
             deflators=self.deflators,
@@ -340,7 +386,7 @@ class RunResult:
             spec = spec.model_dump(mode="json")
         elif spec is not None and not isinstance(spec, (dict, list, str, int, float, bool)):
             spec = repr(spec)
-        return {
+        meta = {
             "seed": self.seed,
             "real": self.real,
             "deflators": {str(year): factor for year, factor in self.deflators.items()},
@@ -348,6 +394,9 @@ class RunResult:
             "spec": spec,
             "tax_returns": [self.tax_returns[key].to_dict() for key in sorted(self.tax_returns)],
         }
+        if self.monthly_positions is not None:
+            meta["has_monthly_positions"] = True
+        return meta
 
     @staticmethod
     def _records(frame: pd.DataFrame | None) -> list[dict] | None:
@@ -368,6 +417,8 @@ class RunResult:
             "monthly_frame": self._records(self.monthly_frame),
             "monthly_balance_sheets": self._records(self.monthly_balance_sheets),
         }
+        if self.monthly_positions is not None:
+            document["monthly_positions"] = self._records(self.monthly_positions)
         path.write_text(json.dumps(document))
         return path
 
@@ -380,13 +431,15 @@ class RunResult:
             "balance_sheets": self.balance_sheets,
             "monthly_balance_sheets": self.monthly_balance_sheets,
             "monthly": self.monthly_frame,
+            "monthly_positions": self.monthly_positions,
             "tax_returns": self.tax_returns_frame(),
         }
 
     def to_csv(self, directory: "str | os.PathLike") -> Path:
         """Write one CSV per table (``model.csv``, ``agents.csv``, ``ledger.csv``, ``events.csv``,
         ``balance_sheets.csv``, ``monthly_balance_sheets.csv``, ``tax_returns.csv``, and ``monthly.csv``
-        when collected) plus ``meta.json``. Returns the directory."""
+        when collected) plus ``meta.json``. Includes ``monthly_positions.csv`` when positions were collected.
+        Returns the directory."""
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         for name, frame in self._tables().items():
@@ -420,7 +473,12 @@ class RunResult:
             path = directory / f"{name}.{'parquet' if parquet else 'csv'}"
             if not path.exists():
                 return None
-            return pd.read_parquet(path) if parquet else pd.read_csv(path)
+            if parquet:
+                return pd.read_parquet(path)
+            if name == "monthly_positions":
+                text = ("account", "account_type", "account_name", "account_spec_id", "owner_name", "owner_spec_id")
+                return pd.read_csv(path, dtype=dict.fromkeys(text, str), keep_default_na=False, na_values=[""])
+            return pd.read_csv(path)
 
         tax_returns = {}
         for record in meta.get("tax_returns", []):
@@ -435,6 +493,7 @@ class RunResult:
             balance_sheets=read("balance_sheets"),
             monthly_frame=read("monthly"),
             monthly_balance_sheets=read("monthly_balance_sheets"),
+            monthly_positions=read("monthly_positions") if meta.get("has_monthly_positions") else None,
             seed=meta.get("seed"),
             spec=meta.get("spec"),
             deflators={int(year): factor for year, factor in meta.get("deflators", {}).items()},

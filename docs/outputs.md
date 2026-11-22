@@ -4,7 +4,7 @@
 
 Everything a run produces, column by column. `LifeModel.run()` returns a `RunResult`
 (`life_model.results`) holding all of it: `model_frame`, `agent_frame`, `tax_returns`, `ledger`,
-`events`, `balance_sheets`, `monthly_balance_sheets`, `monthly_frame`, `seed`, `spec`; `to_json` /
+`events`, `balance_sheets`, `monthly_balance_sheets`, `monthly_frame`, `monthly_positions`, `seed`, `spec`; `to_json` /
 `to_csv` / `to_parquet` / `load`, `real_dollars()` (money in start-year dollars) and
 `explain(year)`. Money is nominal dollars unless a result is `real`; rates are percents.
 
@@ -281,6 +281,32 @@ net worth equals the ledger's inflows minus outflows within $1.
 | `closing_net_worth` | The same after its last stage (December's: the `Net Worth` column). |
 | `inflows` | Ledger inflows posted during the year (month). |
 | `outflows` | Ledger outflows posted during the year (month). |
+
+## Detailed month-end positions
+
+`life_model.run(spec, collect_positions=True)`, `LifeModel(collect_positions=True)`, or
+`life-model run SPEC --collect-positions --out DIR` enables `RunResult.monthly_positions`.
+It is `None` by default and works independently of `collect="month"`.
+It exports as `monthly_positions` in JSON and `monthly_positions.csv` or
+`monthly_positions.parquet` in a directory export.
+
+There is one row per closing balance-sheet line, including zero balances. A joint account
+appears once under the owner recorded on the balance sheet. Summing the signed balances
+for a month gives that month's closing net worth. `real_dollars()` deflates the balance
+to start-year dollars.
+
+| Column | Description |
+| --- | --- |
+| `year` | Simulated year. |
+| `month` | Simulated month (1–12). |
+| `account` | Balance-sheet label, also used in the ledger's from and to columns. |
+| `account_type` | Agent class or type of a balance-sheet line such as `Cash` or `TaxDue`. |
+| `account_name` | Display name at the month end. |
+| `account_spec_id` | Household spec item ID when the position's agent has one. |
+| `owner_id` | Owner's model ID at the month end. |
+| `owner_name` | Owner's display name at the month end. |
+| `owner_spec_id` | Household spec person ID when known. |
+| `balance` | Closing balance in dollars. Assets are positive and liabilities are negative. |
 
 ## Events
 

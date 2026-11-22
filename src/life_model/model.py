@@ -585,6 +585,7 @@ class LifeModel(mesa.Model):
         start_month: int | None = None,
         collect: str = "year",
         checks: str = "off",
+        collect_positions: bool = False,
     ):
         """LifeModel Helper Class
 
@@ -614,6 +615,9 @@ class LifeModel(mesa.Model):
                 (keyword-only). Defaults to January.
             collect (str, optional): ``"year"`` (default) collects one row per simulated year;
                 ``"month"`` also collects a row per month (see :meth:`monthly_frame`). Keyword-only.
+            collect_positions (bool, optional): Capture the identity of each month-end
+                balance-sheet line for ``RunResult.monthly_positions``. Defaults to False and
+                works independently of aggregate stats collection. Keyword-only.
             checks (str, optional): Run the invariant checker (:mod:`life_model.invariants`) at the
                 end of every simulated year: ``"strict"`` raises ``InvariantError`` on a violation,
                 ``"warn"`` emits ``InvariantWarning``, ``"off"`` (default) skips it. Violations are
@@ -665,6 +669,7 @@ class LifeModel(mesa.Model):
         self.period = 0
         #: ``"year"`` or ``"month"`` (see the ``collect`` argument).
         self.collect = collect
+        self.collect_positions = collect_positions
         self.event_log = EventLog(self)
         #: Every settled return, keyed ``(year, unit_id)``; ``tax_returns[year]`` works when the year
         #: has one return (see :class:`~life_model.tax.return_record.TaxReturns`).
@@ -834,7 +839,7 @@ class LifeModel(mesa.Model):
             return
 
         checking = self.checks != "off"
-        track = self.datacollector is not None or checking
+        track = self.datacollector is not None or checking or self.collect_positions
         if self.is_year_start:
             if self.period > 0:
                 self._reset_flow_stats()
@@ -867,7 +872,11 @@ class LifeModel(mesa.Model):
             from .checks import MonthBalances, YearBalances
             from .ledger import household_balance_sheet
 
-            closing = self._closing_sheet if year_end else household_balance_sheet(self)
+            closing = (
+                self._closing_sheet
+                if year_end
+                else household_balance_sheet(self, include_positions=self.collect_positions)
+            )
             self.month_balance_sheets[(self.year, self.month)] = MonthBalances(
                 year=self.year,
                 month=self.month,
@@ -949,7 +958,7 @@ class LifeModel(mesa.Model):
                 value = getattr(agent, name)
                 if isinstance(value, float):
                     setattr(agent, name, snap_money(value))
-        sheet = household_balance_sheet(self)
+        sheet = household_balance_sheet(self, include_positions=self.collect_positions and self.is_year_end)
         for agent in self.agents:
             if isinstance(agent, Person) and not agent.is_deceased:
                 agent.stat_net_worth = sheet.owner_total(agent.unique_id)
