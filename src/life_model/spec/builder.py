@@ -1070,9 +1070,14 @@ class _Builder:
             # Provenance for the extractor: the window as written (until_age, or no end for a 529's default).
             core_plan.spec_window = (plan.start, plan.end, plan.until_age)
             person.add_contribution_plan(core_plan)
-        if p.savings_policy is not None:
+        savings = p.savings_policy
+        if savings is not None:
             person.savings_policy = SavingsPolicy(
-                cash_floor=p.savings_policy.cash_floor, sweep_to=self.built.items[p.savings_policy.sweep_to]
+                cash_floor=savings.cash_floor,
+                sweep_to=self.built.items[savings.sweep_to],
+                source_bank=self.built.items[savings.source_bank] if savings.source_bank is not None else None,
+                start_year=savings.start_year,
+                end_year=savings.end_year,
             )
         if p.roth_conversion is not None:
             rc = p.roth_conversion
