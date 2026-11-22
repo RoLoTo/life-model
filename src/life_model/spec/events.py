@@ -157,8 +157,10 @@ def apply_build_time_events(builder: "_Builder", timing: EventTiming) -> dict[st
     return claims
 
 
-def _life_event(year: int, name: str, source: Any, fn, *args, month: int | None = None) -> LifeEvent:
-    life_event = LifeEvent(year, name, fn, *args, month=month)
+def _life_event(
+    year: int, name: str, source: Any, fn, *args, month: int | None = None, stage: str = "events"
+) -> LifeEvent:
+    life_event = LifeEvent(year, name, fn, *args, month=month, stage=stage)
     setattr(life_event, "spec_source", source)  # read back by spec_from_model  # noqa: B010
     return life_event
 
@@ -269,6 +271,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
     if action == "pay_mortgage_at_maturity":
         name = _name(event, f"{person.name} pays off the mortgage at maturity")
         return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, person, event)]
+
+    if action == "prepay_mortgage":
+        name = _name(event, f"{person.name} prepays the mortgage")
+        return [_life_event(year, name, event, _prepay_mortgage, builder, person, event, stage="post_step")]
 
     if action == "heloc_draw":
         name = _name(event, f"{person.name} draws ${event.amount:,.0f} on a home equity line")
@@ -456,6 +462,19 @@ def _pay_mortgage_at_maturity(builder: "_Builder", person, event: s.MortgageMatu
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
     home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_to_keep=event.cash_to_keep)
+
+
+def _prepay_mortgage(builder: "_Builder", person, event: s.MortgagePrepaymentEvent) -> None:
+    from datetime import date
+
+    from ..housing.home import Home
+
+    home = builder.built.items.get(event.home)
+    if not isinstance(home, Home) or home.person is not person or home.mortgage is None:
+        raise ValueError("A mortgage prepayment needs an existing mortgage on the borrower's home")
+    assert event.at.year is not None and event.at.month is not None and event.at.day is not None
+    when = date(event.at.year, event.at.month, event.at.day)
+    home.mortgage.prepay_surplus(when, cash_fraction=event.cash_fraction, cash_to_keep=event.cash_to_keep)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:
