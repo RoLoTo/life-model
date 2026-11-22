@@ -234,6 +234,11 @@ def _run_add(parser: argparse.ArgumentParser) -> None:
         help="rows to collect: year (default) or month (also a row per month end: monthly_frame in result.json, "
         "monthly.csv / monthly.parquet)",
     )
+    parser.add_argument(
+        "--collect-positions",
+        action="store_true",
+        help="record month-end balances by account and owner in monthly_positions when exporting",
+    )
 
 
 def _run(args: argparse.Namespace) -> tuple[dict, str]:
@@ -242,7 +247,9 @@ def _run(args: argparse.Namespace) -> tuple[dict, str]:
         from .results import _require_parquet
 
         _require_parquet()  # fail before running, and before creating DIR
-    result = api.run(_spec_source(args), collect=args.collect, **_run_kwargs(args))
+    result = api.run(
+        _spec_source(args), collect=args.collect, collect_positions=args.collect_positions, **_run_kwargs(args)
+    )
     summary = api.summarize(result)
     files: list[str] = []
     if out is not None:

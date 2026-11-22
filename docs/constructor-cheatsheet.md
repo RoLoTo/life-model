@@ -97,7 +97,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 
 | Class | Owner | Required | Optional (default) |
 |---|---|---|---|
-| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'` |
+| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'`, `*collect_positions=False` |
 | `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None` |
 | `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None` |
 | `Spending` (life_model.people.person) | `model` | `model` | `base_annual=0`, `growth_pct=0`, `*categories=None`, `*schedule=None` |

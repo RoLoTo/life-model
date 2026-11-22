@@ -248,6 +248,7 @@ def create_model(
     apply_economy: bool = True,
     model_cls: type[LifeModel] = LifeModel,
     collect: str = "year",
+    collect_positions: bool = False,
 ) -> LifeModel:
     """Create the (empty) :class:`LifeModel` for ``spec``: years, seed, scenario and economy.
 
@@ -263,6 +264,7 @@ def create_model(
         model_cls: The ``LifeModel`` subclass to instantiate.
         collect: Passed to ``LifeModel(collect=)``: ``"month"`` also collects month-end rows
             (``RunResult.monthly_frame``).
+        collect_positions: Record month-end balance-sheet positions for ``RunResult.monthly_positions``.
     """
     meta = spec.meta
     if config is None:
@@ -279,7 +281,7 @@ def create_model(
             # Keep the scenario name: the economy block refines the scenario rather than replacing it.
             config.apply_scenario(cast(str, config.scenario), {"economy": overrides})
     start_month = int(meta.start.split("-")[1]) if meta.start is not None else None
-    return model_cls(
+    model = model_cls(
         end_year=meta.end_year,
         start_year=meta.start_year,
         seed=meta.seed if seed is None else seed,
@@ -288,6 +290,9 @@ def create_model(
         start_month=start_month,
         collect=collect,
     )
+    if collect_positions:
+        model.collect_positions = True
+    return model
 
 
 def build_household(
@@ -298,10 +303,13 @@ def build_household(
     collect_data: bool = True,
     check: bool = True,
     collect: str = "year",
+    collect_positions: bool = False,
 ) -> BuiltHousehold:
     """:func:`create_model` + :func:`populate_model`, returning the agent handles."""
     _check(spec, config, check)
-    model = create_model(spec, config=config, seed=seed, collect_data=collect_data, collect=collect)
+    model = create_model(
+        spec, config=config, seed=seed, collect_data=collect_data, collect=collect, collect_positions=collect_positions
+    )
     return _populate(model, spec)
 
 
@@ -313,6 +321,7 @@ def build_model(
     collect_data: bool = True,
     check: bool = True,
     collect: str = "year",
+    collect_positions: bool = False,
 ) -> LifeModel:
     """Build a ready-to-run :class:`LifeModel` from ``spec``.
 
@@ -325,12 +334,19 @@ def build_model(
             emitted as :class:`SpecWarning`. When False only ``not_yet_supported`` fields are
             checked (they are always rejected, so the builder never silently drops one).
         collect: ``"year"`` (default) or ``"month"`` (also month-end rows; see :func:`create_model`).
+        collect_positions: Record month-end balance-sheet positions for ``RunResult.monthly_positions``.
 
     Returns:
         The model; ``model.household`` holds the :class:`BuiltHousehold` handles.
     """
     return build_household(
-        spec, config=config, seed=seed, collect_data=collect_data, check=check, collect=collect
+        spec,
+        config=config,
+        seed=seed,
+        collect_data=collect_data,
+        check=check,
+        collect=collect,
+        collect_positions=collect_positions,
     ).model
 
 

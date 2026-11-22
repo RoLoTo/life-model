@@ -261,6 +261,7 @@ def build(
     checks: Checks = "warn",
     collect_data: bool = True,
     collect: Collect = "year",
+    collect_positions: bool = False,
 ):
     """Build a ready-to-run :class:`~life_model.model.LifeModel` from ``spec`` (see :func:`run` for
     ``checks`` and ``collect``)."""
@@ -278,7 +279,14 @@ def build(
             raise SpecValidationError(strict)
     if collect not in COLLECT_MODES:
         raise InputError(f"collect must be one of {COLLECT_MODES}, got {collect!r}")
-    model = build_model(spec, seed=seed, check=checks != "off", collect_data=collect_data, collect=collect)
+    model = build_model(
+        spec,
+        seed=seed,
+        check=checks != "off",
+        collect_data=collect_data,
+        collect=collect,
+        collect_positions=collect_positions,
+    )
     if checks == "warn":
         # The assumption warnings (a costly default left in place) are reported by the one-call functions
         # and the command line; build_model itself (used by library callers) emits the others.
@@ -318,6 +326,7 @@ def run(
     real_dollars: bool = False,
     checks: Checks = "warn",
     collect: Collect = "year",
+    collect_positions: bool = False,
 ) -> "RunResult":
     """Build and run a household; returns its :class:`~life_model.results.RunResult`.
 
@@ -337,13 +346,15 @@ def run(
             not-yet-supported fields are rejected) and no checks.
         collect: ``"year"`` (default): one row per simulated year. ``"month"``: also a row per
             month end (``RunResult.monthly_frame``, written by ``to_json``/``to_csv``/``to_parquet``).
+        collect_positions: Capture signed closing balances by account and owner in
+            ``RunResult.monthly_positions``. Defaults to False, independently of ``collect``.
 
     Raises:
         SpecValidationError: The spec is invalid (``findings`` lists why).
         InputError: Bad overrides (unknown scenario, ``years`` and ``end_year`` both set...).
     """
     spec = prepare_spec(spec, years=years, end_year=end_year, scenario=scenario)
-    model = build(spec, seed=seed, checks=checks, collect=collect)
+    model = build(spec, seed=seed, checks=checks, collect=collect, collect_positions=collect_positions)
     result = model.run()
     _check_conservation(result, checks)
     return result.real_dollars() if real_dollars else result
