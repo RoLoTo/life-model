@@ -7,8 +7,8 @@ import html
 import math
 from calendar import monthrange
 from datetime import date
-from decimal import ROUND_DOWN, Decimal
-from typing import ClassVar, Literal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis
@@ -26,15 +26,28 @@ def _closing_costs(model: LifeModel, price: float, percent: float | None) -> flo
     return price * (rate / 100)
 
 
+if TYPE_CHECKING:
+    from ..debt.bridge import DatedBridgeLine
+
+
+def _bridge_draw_amount(gap: float) -> float:
+    """Smallest whole-cent draw that covers the gap."""
+    return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+
+
 class MortgagePayoffShortfall(ValueError):
     """Additional spendable bank cash required to discharge a mortgage on its due date."""
 
-    def __init__(self, *, when: date, payoff: float, bank_cash: float, cash_to_keep: float):
+    def __init__(
+        self, *, when: date, payoff: float, bank_cash: float, cash_to_keep: float, bridge_credit: float | None = None
+    ):
         self.when = when
         self.payoff = payoff
         self.bank_cash = bank_cash
         self.cash_to_keep = cash_to_keep
-        self.amount = snap_money(payoff + cash_to_keep - bank_cash)
+        self.bridge_credit = bridge_credit
+        gap = snap_money(payoff + cash_to_keep - bank_cash)
+        self.amount = gap if bridge_credit is None else snap_money(_bridge_draw_amount(gap) - bridge_credit)
         super().__init__(f"Mortgage payoff on {when.isoformat()} needs {self.amount:,.2f} in additional bank cash")
 
 
@@ -780,11 +793,14 @@ class Mortgage(Loan):
         if self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
 
-    def pay_at_maturity(self, when: date, *, interest_due: float, cash_to_keep: float = 0.0) -> None:
+    def pay_at_maturity(
+        self, when: date, *, interest_due: float, cash_to_keep: float = 0.0, bridge: "DatedBridgeLine | None" = None
+    ) -> None:
         """Discharge the live principal and the lender's quoted final interest from bank cash.
 
-        Raises MortgagePayoffShortfall before withdrawing anything if the payoff and cash floor
-        exceed the borrower's usable bank cash. Use the month's events stage before scheduled bills.
+        When an approved bridge is supplied, draw only the whole cents needed to fund the payoff
+        and retain the cash floor. Raise MortgagePayoffShortfall before moving any money when
+        cash and available credit cannot cover both. Use the month's events stage before bills.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
@@ -793,11 +809,25 @@ class Mortgage(Loan):
         if self.principal <= 0:
             return
         person = self.person
+        if bridge is not None and bridge.person is not person:
+            raise ValueError("The borrower must own the approved bridge line")
         principal = self.principal
         payoff = principal + interest_due
         bank_cash = person.usable_bank_balance
-        if snap_money(payoff + cash_to_keep - bank_cash) > 0:
-            raise MortgagePayoffShortfall(when=when, payoff=payoff, bank_cash=bank_cash, cash_to_keep=cash_to_keep)
+        gap = snap_money(payoff + cash_to_keep - bank_cash)
+        bridge_draw = 0.0
+        if gap > 0:
+            capacity = bridge.get_available_credit() if bridge is not None else 0.0
+            required = _bridge_draw_amount(gap) if bridge is not None else gap
+            if bridge is None or required > capacity:
+                raise MortgagePayoffShortfall(
+                    when=when,
+                    payoff=payoff,
+                    bank_cash=bank_cash,
+                    cash_to_keep=cash_to_keep,
+                    bridge_credit=capacity if bridge is not None else None,
+                )
+            bridge_draw = bridge.draw(required, when=when)
 
         person.deduct_from_bank_accounts(
             principal, kind=FlowKind.HOUSING, to_account=self, cause="mortgage payoff principal", include_reserve=False
@@ -817,19 +847,20 @@ class Mortgage(Loan):
         self._record_month(principal, interest_due)
         person.stat_housing_costs = snap_money(person.stat_housing_costs + payoff)
         person.stat_interest_paid = snap_money(person.stat_interest_paid + interest_due)
-        self.model.event_log.add(
-            Event(
-                EventKind.MORTGAGE_PAID_AT_MATURITY,
-                person=person,
-                account=self,
-                amount=payoff,
-                cause="mortgage payoff",
-                date=when.isoformat(),
-                principal=principal,
-                interest_due=interest_due,
-                cash_to_keep=cash_to_keep,
-            )
+        event = Event(
+            EventKind.MORTGAGE_PAID_AT_MATURITY,
+            person=person,
+            account=self,
+            amount=payoff,
+            cause="mortgage payoff",
+            date=when.isoformat(),
+            principal=principal,
+            interest_due=interest_due,
+            cash_to_keep=cash_to_keep,
         )
+        if bridge is not None:
+            event.details["bridge_draw"] = bridge_draw
+        self.model.event_log.add(event)
 
     def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_to_keep: float = 0.0) -> float:
         """Pay a fraction of spendable bank cash above a floor to principal after the month's bills."""

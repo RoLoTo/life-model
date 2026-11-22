@@ -1408,6 +1408,7 @@ Pay a mortgage's outstanding principal and quoted final interest from bank cash 
 | `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
 | `interest_due` | number | USD | **required** |  | Lender's quoted interest due at payoff. |
 | `cash_to_keep` | number | USD | `0.0` |  | Minimum spendable bank cash to keep after payoff. |
+| `bridge` | string (optional) |  | — |  | Borrower's approved bridge line. Draw only the cash shortfall including the floor. |
 
 ## MortgagePrepaymentEvent
 

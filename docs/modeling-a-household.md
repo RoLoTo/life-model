@@ -62,6 +62,10 @@ month's regular bills. The optional `cash_to_keep` is a minimum immediately afte
 comes from spendable bank cash, excluding emergency reserves. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
 A cash shortfall stops the run before any payoff is posted.
+Set the payoff's optional `bridge` to a borrower-owned `bridge_line` id to cover that shortfall
+automatically. The draw is the smallest whole-cent amount that funds the payoff and preserves
+`cash_to_keep`. When available headroom is insufficient, the reported shortfall is the additional
+cash needed beyond that headroom. The mortgage and bridge stay as they were at the start of the event.
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Set `cash_to_keep` to retain a cash floor and
