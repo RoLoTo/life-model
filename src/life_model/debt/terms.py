@@ -35,6 +35,9 @@ SCHEDULES = ("contract", "statement")
 
 import math
 from dataclasses import dataclass
+from typing import Literal
+
+MortgageRateCompounding = Literal["monthly", "semiannual"]
 
 
 class LoanTermsError(ValueError):
@@ -70,6 +73,18 @@ class LoanTerms:
 def monthly_rate(rate_pct: float) -> float:
     """The monthly rate (a fraction) of an APR in percent."""
     return rate_pct / 1200.0
+
+
+def mortgage_rate_on_monthly_basis(rate_pct: float, compounding: MortgageRateCompounding) -> float:
+    """Return the annual nominal percent with the same effective monthly rate as the quote."""
+    if compounding == "monthly":
+        return rate_pct
+    if compounding != "semiannual":
+        raise ValueError("Mortgage rate compounding must be monthly or semiannual")
+    if not math.isfinite(rate_pct) or rate_pct < 0:
+        raise ValueError("A semiannual mortgage quote requires a finite, non-negative rate")
+    # A monthly factor compounds six times to the quoted half-year factor.
+    return 1200.0 * math.expm1(math.log1p(rate_pct / 200.0) / 6.0)
 
 
 def amortizing_payment(principal: float, rate_pct: float, months: int) -> float:

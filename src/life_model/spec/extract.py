@@ -895,12 +895,15 @@ class _Extractor:
             if home.mortgage is not None:
                 m = home.mortgage
                 terms = self.loan_terms(m)
+                if m.rate_compounding == "semiannual":
+                    terms["rate_pct"] = m.quoted_rate_pct
                 start_year = getattr(m, "spec_start_year", None) if not self.stepped else None
                 if start_year is None and m.start_date is not None and getattr(m, "spec_loan_inputs", None) is None:
                     start_year = _none_if(int(m.start_date), start)
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
+                    rate_compounding=m.rate_compounding,
                     **terms,
                 )
             e = home.expenses

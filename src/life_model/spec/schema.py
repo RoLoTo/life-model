@@ -32,6 +32,8 @@ from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..debt.terms import MortgageRateCompounding
+
 #: Version of the spec format written by :func:`life_model.spec.io.dump`.
 SPEC_VERSION = 1
 
@@ -1785,6 +1787,12 @@ class Mortgage(_LoanTerms):
     )
 
     CORE_CLASS = "Mortgage"
+
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly",
+        description="Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent.",
+        core="Mortgage.rate_compounding",
+    )
 
     start_year: Year | None = spec_field(
         None,

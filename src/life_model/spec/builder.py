@@ -878,6 +878,7 @@ class _Builder:
             mortgage = Mortgage(
                 start_year=m.start_year if m.start_year is not None else self.model.year,
                 escrow_monthly=m.escrow_monthly,
+                rate_compounding=m.rate_compounding,
                 **terms,
             )
             self._remember_loan(mortgage, m)
