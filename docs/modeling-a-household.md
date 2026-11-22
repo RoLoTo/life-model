@@ -53,17 +53,18 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 
 Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
 `at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
-month's regular bills. The optional `cash_to_keep` is a minimum immediately after payoff. Funding
-comes from spendable bank cash, excluding emergency reserves. When relying on a same-day receipt,
+month's regular bills. Use the date on the mortgage contract. The engine accepts that date and
+bypasses prepayment caps and fees. The payoff follows the home's current owner and draws spendable
+bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
+`shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
-A cash shortfall stops the run before any payoff is posted.
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
 contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
 year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
-surplus (for example, `0.5` for half). Scheduled instalments continue at the contracted amount. Enter only prepayments
-permitted under the mortgage contract.
+surplus (for example, `0.5` for half). Scheduled payments continue at the contracted amount.
+Enter only prepayments permitted under the mortgage contract.
 
 In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
 sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's

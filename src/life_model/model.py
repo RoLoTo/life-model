@@ -171,8 +171,8 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "penalty": "Detail: an additional tax settled with the year's return (amount; cause: its source).",
     "shortfall_debt": "Detail: bills the household could not pay, carried as debt (amount, cause).",
     "refinanced": "A loan was refinanced (amount: the new principal; cause: the refinance).",
-    "mortgage_paid_at_maturity": "A mortgage was paid off from bank cash (amount: principal plus final interest; "
-    "details: date, principal, interest_due, cash_to_keep).",
+    "mortgage_paid_at_maturity": "A mortgage was paid off (amount: principal plus final interest; "
+    "details: date, principal, interest_due, cash_floor, shortfall_debt).",
     "mortgage_prepayment": "Month-end cash was applied to mortgage principal (amount: principal paid; "
     "details: date, cash_before, cash_floor, tax_holdback, cash_fraction, requested).",
 }
