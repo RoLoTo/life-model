@@ -1134,11 +1134,14 @@ class _Extractor:
                     years[id(source)].append((life_event.year, life_event.month))
         if not self.stepped:
             return sources
-        retimed = []
+        retimed: list[s.Marriage | s.Event] = []
         for source in sources:
             pending = years[id(source)]
             if isinstance(source, s.Marriage):
                 retimed.append(source.model_copy(update={"year": min(pending)[0]}))
+                continue
+            if isinstance(source, s.MortgageRenewalEvent):
+                retimed.append(source)  # Always dated in an explicit calendar month.
                 continue
             first_year, first_month = min(pending, key=lambda when: (when[0], when[1] or 0))
             update: dict[str, Any] = {"at": s.At(year=first_year, month=first_month)}

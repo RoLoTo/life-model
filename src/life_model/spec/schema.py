@@ -2963,6 +2963,32 @@ class RefinanceEvent(EventBase):
         return self
 
 
+class MortgageRenewalAt(At):
+    """A calendar month, with the first day implied when omitted."""
+
+    year: Year = spec_field(description="Calendar year of the renewal.", unit="year")
+    month: int = spec_field(description="Calendar month of the renewal.", unit="month", ge=1, le=12)
+    day: Literal[1] | None = spec_field(None, description="If supplied, must be the first day.")
+
+
+class MortgageRenewalEvent(EventBase):
+    """Renew a mortgage before the specified month's payment, with no new borrowing or fees."""
+
+    action: Literal["renew_mortgage"]
+    at: MortgageRenewalAt = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    rate_pct: NonNegativePercent = spec_field(description="New quoted annual rate.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly", description="Compounding of the quoted annual rate."
+    )
+    amortization_months: int | None = spec_field(
+        None,
+        description="Number of new monthly payments. By default, keep the scheduled number of payments remaining.",
+        unit="months",
+        ge=1,
+    )
+
+
 class HelocDrawEvent(EventBase):
     """Draw on a home equity line: to the bank, or spent on improvements to the home securing it."""
 
@@ -3012,6 +3038,7 @@ Event = Annotated[
     | ClaimSocialSecurityEvent
     | DieEvent
     | RefinanceEvent
+    | MortgageRenewalEvent
     | HelocDrawEvent
     | DisabilityEvent,
     Field(discriminator="action"),
@@ -3037,6 +3064,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "claim_social_security",
     "die",
     "refinance",
+    "renew_mortgage",
     "heloc_draw",
     "disability",
 )

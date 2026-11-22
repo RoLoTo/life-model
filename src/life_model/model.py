@@ -143,6 +143,7 @@ class EventKind(str, Enum):
     PENALTY = "penalty"
     SHORTFALL_DEBT = "shortfall_debt"
     REFINANCED = "refinanced"
+    MORTGAGE_RENEWED = "mortgage_renewed"
 
     @property
     def is_detail(self) -> bool:
@@ -169,6 +170,8 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "penalty": "Detail: an additional tax settled with the year's return (amount; cause: its source).",
     "shortfall_debt": "Detail: bills the household could not pay, carried as debt (amount, cause).",
     "refinanced": "A loan was refinanced (amount: the new principal; cause: the refinance).",
+    "mortgage_renewed": "A mortgage's outstanding principal was repriced (amount: unchanged principal; details: date, "
+    "rate_pct, rate_compounding, amortization_months, monthly_payment).",
 }
 
 _DETAIL_KINDS = frozenset(
