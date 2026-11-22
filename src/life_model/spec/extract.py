@@ -25,6 +25,7 @@ the state); retired jobs are omitted.
 """
 
 import re
+from datetime import date
 from typing import Any, Literal, cast
 
 from ..account.bank import COMPOUNDING_PERIODS
@@ -900,10 +901,22 @@ class _Extractor:
                 start_year = getattr(m, "spec_start_year", None) if not self.stepped else None
                 if start_year is None and m.start_date is not None and getattr(m, "spec_loan_inputs", None) is None:
                     start_year = _none_if(int(m.start_date), start)
+                privilege = None
+                if m.prepayment_privilege is not None:
+                    cap = m.prepayment_privilege
+                    as_of = date(self.model.year, self.model.month, 1)
+                    entered = getattr(m, "spec_prepayment_privilege", None) if not self.stepped else None
+                    privilege = entered or s.MortgagePrepaymentPrivilege(
+                        anniversary=cap.anniversary,
+                        annual_limit_pct=float(cap.annual_limit_pct),
+                        basis_amount=float(cap.basis_amount),
+                        used=float(cap.used_for(as_of)),
+                    )
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
                     rate_compounding=m.rate_compounding,
+                    prepayment_privilege=privilege,
                     **terms,
                 )
             e = home.expenses

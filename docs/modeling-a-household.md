@@ -67,8 +67,19 @@ Schedule `prepay_mortgage` on the last calendar day of a month to apply spendabl
 to principal after scheduled bills. Set `cash_to_keep` to retain a cash floor and
 `cash_fraction` to use only a portion of the surplus (for example, `0.5` for half).
 The regular payment stays the same. December tax settlement follows the prepayment stage.
-Include any cash needed for that settlement in the December floor. Enter only prepayments
-permitted under the mortgage contract.
+Include any cash needed for that settlement in the December floor.
+
+For a contractual annual cap, set the mortgage's `prepayment_privilege` with the first eligible
+`anniversary` and `annual_limit_pct`. The cap resets on that anniversary each year. Set
+`basis_amount` if the contract uses a different amount from the original mortgage, and `used` for
+lump sums already paid in the opening contract year. A saved projection carries forward the cap's
+basis and usage. Use the lump-sum cap with `prepay_mortgage` events and enter regular principal in
+the mortgage's scheduled payment.
+
+A `renew_mortgage` event keeps the same cap and usage by default. New `prepayment_privilege` terms
+start at zero usage and use the balance immediately before renewal as their default basis. Pass
+`prepayment_privilege: uncapped` to end the cap at renewal. A refinance starts a new loan and
+clears the previous cap.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that

@@ -8,7 +8,7 @@ import math
 from calendar import monthrange
 from datetime import date
 from decimal import ROUND_DOWN, Decimal
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis
@@ -18,6 +18,7 @@ from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
+from .prepayment import MortgagePrepaymentPrivilege
 
 
 class MortgagePayoffShortfall(ValueError):
@@ -640,6 +641,7 @@ class Mortgage(Loan):
         extra_principal_monthly: float = 0.0,
         schedule: str = "contract",
         rate_compounding: MortgageRateCompounding = "monthly",
+        prepayment_privilege: MortgagePrepaymentPrivilege | None = None,
     ):
         """Mortgage
 
@@ -656,6 +658,7 @@ class Mortgage(Loan):
             rate_pct (float): Quoted annual mortgage rate, percent.
             rate_compounding (str, optional): Compounding convention of the quoted rate, monthly
                 by default. Semiannual quotes are converted to an equivalent monthly rate.
+            prepayment_privilege (MortgagePrepaymentPrivilege, optional): Annual cap on lump sums.
             current_balance (float, optional): Current balance. Defaults to the schedule's (the original
                 amount for a new loan).
             payment_monthly (float, optional): Principal and interest per month (computed when None);
@@ -672,6 +675,9 @@ class Mortgage(Loan):
         loan_amount, start_date, length_years = original_amount, start_year, term_years
         self.quoted_rate_pct = rate_pct
         self.rate_compounding = rate_compounding
+        if prepayment_privilege is not None and extra_principal_monthly:
+            raise ValueError("A lump-sum privilege cannot be combined with automatic extra principal")
+        self.prepayment_privilege = prepayment_privilege
         yearly_interest_rate = None if rate_pct is None else mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
         principal, monthly_payment = current_balance, payment_monthly
         # Intentionally does NOT call Loan.__init__ (no person/model yet); resolve the loan data
@@ -818,6 +824,10 @@ class Mortgage(Loan):
         wanted = Decimal(str(surplus)) * Decimal(str(cash_fraction))
         requested = float(wanted.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
         paid = min(self.principal, requested)
+        privilege = self.prepayment_privilege
+        limit = privilege.remaining(when) if privilege is not None else None
+        if limit is not None:
+            paid = min(paid, float(limit))
         if paid:
             paid -= person.deduct_from_bank_accounts(
                 paid, kind=FlowKind.HOUSING, to_account=self, cause="mortgage prepayment", include_reserve=False
@@ -827,20 +837,23 @@ class Mortgage(Loan):
             if self.stat_principal_payment_history:
                 self.stat_principal_payment_history[-1] += paid
             person.stat_housing_costs = snap_money(person.stat_housing_costs + paid)
-        self.model.event_log.add(
-            Event(
-                EventKind.MORTGAGE_PREPAYMENT,
-                person=person,
-                account=self,
-                amount=paid,
-                cause="month-end surplus",
-                date=when.isoformat(),
-                cash_before=cash_before,
-                cash_to_keep=cash_to_keep,
-                cash_fraction=cash_fraction,
-                requested=requested,
-            )
+            if privilege is not None:
+                privilege.record(when, Decimal(str(snap_money(paid))))
+        event = Event(
+            EventKind.MORTGAGE_PREPAYMENT,
+            person=person,
+            account=self,
+            amount=paid,
+            cause="month-end surplus",
+            date=when.isoformat(),
+            cash_before=cash_before,
+            cash_to_keep=cash_to_keep,
+            cash_fraction=cash_fraction,
+            requested=requested,
         )
+        if limit is not None:
+            event.details["limit_remaining"] = float(limit)
+        self.model.event_log.add(event)
         return paid
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
@@ -874,11 +887,14 @@ class Mortgage(Loan):
         rate_pct: float,
         rate_compounding: MortgageRateCompounding = "monthly",
         amortization_months: int | None = None,
+        prepayment_privilege: MortgagePrepaymentPrivilege | Literal["uncapped"] | None = None,
     ) -> None:
         """Reprice the outstanding principal before the current month's payment.
 
         Use the remaining scheduled months unless a new amortization is given.
         The balance, acquisition debt classification and payment history carry forward.
+        Omit the privilege to keep the cap and usage, pass new terms to reset them, or use
+        ``"uncapped"`` to remove the cap.
         """
         if self.principal <= 0:
             return
@@ -887,12 +903,19 @@ class Mortgage(Loan):
             raise ValueError("A mortgage renewal requires a positive amortization in months")
         if not math.isfinite(rate_pct) or rate_pct < 0:
             raise ValueError("A mortgage renewal requires a finite, non-negative rate")
+        if isinstance(prepayment_privilege, MortgagePrepaymentPrivilege):
+            if prepayment_privilege.used:
+                raise ValueError("A renewal's new prepayment privilege starts with zero usage")
+            if self.extra_principal_monthly:
+                raise ValueError("A lump-sum privilege cannot be combined with automatic extra principal")
         rate = mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
         effective_date = date(self.model.year, self.model.month, 1)
         # Payment one is in this month; snapshots use the actual count of payments made.
         self._reset_loan_schedule(self.principal, rate, remaining)
         self.quoted_rate_pct = rate_pct
         self.rate_compounding = rate_compounding
+        if prepayment_privilege is not None:
+            self.prepayment_privilege = None if prepayment_privilege == "uncapped" else prepayment_privilege
         self.model.event_log.add(
             Event(
                 EventKind.MORTGAGE_RENEWED,
@@ -936,6 +959,7 @@ class Mortgage(Loan):
         )
         self.quoted_rate_pct = rate_pct
         self.rate_compounding = "monthly"
+        self.prepayment_privilege = None  # A refinance creates a new loan with a new contract.
         return new_principal
 
     def _pay_cash_out(self, amount: float, cause: str) -> None:
