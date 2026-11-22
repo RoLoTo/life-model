@@ -869,16 +869,18 @@ class _Builder:
         raise NotImplementedError(f"debt kind {debt.kind!r} is not supported by the builder")
 
     def build_home(self, person, home: s.Home, *, purchase: bool | None = None):
-        from ..housing.home import Home, HomeExpenses, Mortgage
+        from ..housing.home import Home, HomeExpenses, Mortgage, MortgageRenewalState
 
         mortgage = None
         if home.mortgage is not None:
             m = home.mortgage
             terms = self._loan_terms(m)
+            renewal_state = m.renewal_state
             mortgage = Mortgage(
                 start_year=m.start_year if m.start_year is not None else self.model.year,
                 escrow_monthly=m.escrow_monthly,
                 rate_compounding=m.rate_compounding,
+                renewal_state=None if renewal_state is None else MortgageRenewalState(**renewal_state.model_dump()),
                 **terms,
             )
             self._remember_loan(mortgage, m)
