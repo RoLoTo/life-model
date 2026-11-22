@@ -36,6 +36,7 @@ from .ledger import FlowKind
 from .model import Event, LifeModelAgent
 
 if TYPE_CHECKING:
+    from .account.bank import BankAccount
     from .people.person import Person
     from .work.job import Job
 
@@ -292,19 +293,37 @@ class SavingsPolicy:
     the year end into a taxable account; at the start of the next year into a tax-advantaged account or a
     529 (so the contribution is within that year's room and on that year's return)."""
 
-    def __init__(self, *, cash_floor: float, sweep_to=None):
+    def __init__(
+        self,
+        *,
+        cash_floor: float,
+        sweep_to=None,
+        source_bank: "BankAccount | None" = None,
+        start_year: int | None = None,
+        end_year: int | None = None,
+    ):
         """A surplus sweep.
 
         Args:
-            cash_floor: Dollars kept in the owner's (non-reserve) bank accounts.
+            cash_floor: Dollars kept in the named bank, or across the owner's spendable banks.
             sweep_to: Where the surplus goes: a brokerage account, fixed-income holding or bank account
                 (swept at the year end), or a tax-advantaged account or 529 (swept at the start of the
                 following year, within its room). None keeps the cash (no sweep).
+            source_bank: The owner's spendable bank account that alone funds the sweep, when supplied.
+            start_year: First transfer year, inclusive.
+            end_year: Last transfer year, inclusive.
         """
         if cash_floor < 0:
             raise ValueError("cash_floor must be non-negative")
+        if source_bank is not None and source_bank is sweep_to:
+            raise ValueError("A savings sweep needs distinct source and destination accounts")
+        if start_year is not None and end_year is not None and end_year < start_year:
+            raise ValueError("A savings sweep cannot end before it starts")
         self.cash_floor = float(cash_floor)
         self.sweep_to = sweep_to
+        self.source_bank = source_bank
+        self.start_year = start_year
+        self.end_year = end_year
 
     def __repr__(self) -> str:
         target = type(self.sweep_to).__name__ if self.sweep_to is not None else None
@@ -633,16 +652,20 @@ def _contribute_from_bank(person: "Person", plan: ContributionPlan) -> float:
     return moved
 
 
-def move_from_bank(person: "Person", account, amount: float, *, cause: str) -> float:
+def move_from_bank(
+    person: "Person", account, amount: float, *, cause: str, source_bank: "BankAccount | None" = None
+) -> float:
     """Move up to ``amount`` from ``person``'s non-reserve banks into ``account``, posting it: a
     contribution to a tax-advantaged account or 529 (within its room, with its tax treatment), a deposit
     to a brokerage (a new lot), a purchase of a fixed-income holding, or a transfer to a bank account.
-    Returns the amount moved."""
+    Supply a source bank to restrict funding to that account. Returns the amount moved."""
     with person.model.ledger.caused_by(cause):
-        return _move_from_bank(person, account, amount, cause=cause)
+        return _move_from_bank(person, account, amount, cause=cause, source_bank=source_bank)
 
 
-def _move_from_bank(person: "Person", account, amount: float, *, cause: str) -> float:
+def _move_from_bank(
+    person: "Person", account, amount: float, *, cause: str, source_bank: "BankAccount | None" = None
+) -> float:
     from .account.bank import BankAccount
     from .account.brokerage import BrokerageAccount
     from .account.cash_reserve import CashReserve
@@ -652,7 +675,11 @@ def _move_from_bank(person: "Person", account, amount: float, *, cause: str) -> 
     if isinstance(account, CashReserve):
         raise TypeError("Cash reserves are funded at creation")
     moved = 0.0
-    banks = [b for b in person.usable_bank_accounts if not b.reserve and b is not account and b.balance > 0]
+    banks = [
+        b
+        for b in person.usable_bank_accounts
+        if not b.reserve and b is not account and b.balance > 0 and (source_bank is None or b is source_bank)
+    ]
     for bank in banks:
         want = min(amount - moved, bank.balance)
         if want <= 0.005:
@@ -684,10 +711,19 @@ def _move_from_bank(person: "Person", account, amount: float, *, cause: str) -> 
 
 def sweep(person: "Person", policy: SavingsPolicy) -> float:
     """Move ``person``'s cash above ``policy.cash_floor`` to ``policy.sweep_to``. Returns the amount moved."""
-    surplus = person.usable_bank_balance - policy.cash_floor
+    year = person.model.year
+    if (policy.start_year is not None and year < policy.start_year) or (
+        policy.end_year is not None and year > policy.end_year
+    ):
+        return 0.0
+    bank = policy.source_bank
+    if bank is not None and (bank.person is not person or bank.reserve):
+        raise ValueError("A savings sweep's source must be a spendable bank owned by the person")
+    cash = person.usable_bank_balance if bank is None else bank.balance
+    surplus = cash - policy.cash_floor
     if surplus < 1.0:
         return 0.0
-    moved = move_from_bank(person, policy.sweep_to, surplus, cause="savings sweep")
+    moved = move_from_bank(person, policy.sweep_to, surplus, cause="savings sweep", source_bank=bank)
     if moved > 0:
         person.model.event_log.add(Event(f"{person.name} swept ${moved:,.0f} of surplus cash"))
     return moved

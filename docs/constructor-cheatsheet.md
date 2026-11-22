@@ -133,7 +133,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 | `SocialSecurity` (life_model.insurance.social_security) | `owner` | `owner` | `claim_age=None`, `earnings_history=None`, `*pia_override_monthly=None`, `*fra_from_birth_year=False`, `*spousal_benefit=False`, `*earnings_test=False` |
 | `Donation` (life_model.charity.donation) | `person` | `person`, `charity_name`, `annual_amount` | `donation_type=DonationType.CASH`, `tax_deductible=True`, `frequency_years=1`, `start_year=None`, `end_year=None` |
 | `ContributionPlan` (life_model.policies) |  | `account` | `*amount_annual=None`, `*pct_of_pay=None`, `*source='bank'`, `*months=12`, `*bucket=None`, `*start=None`, `*end=None` |
-| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None` |
+| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None`, `*source_bank=None`, `*start_year=None`, `*end_year=None` |
 | `RothConversionPolicy` (life_model.policies) |  | — | `*fill_bracket_pct=None`, `*amount_annual=None`, `*source=None`, `*target=None`, `*until_age=None` |
 | `Child` (life_model.dependents.child) | `person` | `person`, `name`, `birth_year` | `*care_expenses_annual=0.0`, `*interest_annual=0.0`, `*dividends_annual=0.0`, `*cost_annual=None`, `*college_cost_annual=None`, `*birth_month=None` |
 

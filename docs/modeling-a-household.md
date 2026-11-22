@@ -94,6 +94,13 @@ interest counts toward liabilities, and the approved limit applies to principal.
 the collateral clears the bridge through the sale date before depositing the net proceeds.
 For same-day events that rely on one another, give them IDs that sort in the intended order.
 
+A `savings_policy` can name one spendable opening bank account with `source_bank`. The
+`cash_floor` then applies to that account alone. If you omit `source_bank`, the floor applies
+across spendable bank accounts. The destination must also be an opening account. Optional
+`start_year` and `end_year` bound the actual transfer year, inclusively. Taxable destinations
+receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
+transfer year, up to that year's contribution room.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked
