@@ -883,6 +883,10 @@ class _SpecChecker:
     def check_account_rules(self, account, path: str) -> None:
         """Account rules: a standalone 401k takes no contributions or match; an allocation sums to 100 and
         needs growth to follow the economy."""
+        if isinstance(account, s.CashReserveAccount):
+            release = account.release_on
+            if (release.year, release.month) < (self.start, self.start_month):
+                self.error(f"{path}.release_on", "Release date precedes the first simulated month.")
         if isinstance(account, s.Job401k) and account.job is None:
             if account.pretax_contrib_pct or account.roth_contrib_pct or account.after_tax_contrib_pct:
                 self.error(
@@ -937,7 +941,7 @@ class _SpecChecker:
                 )
                 continue
             kind = account.kind
-            if kind in ("pension", "annuity", "inherited_pretax", "trust", "daf"):
+            if kind in ("pension", "annuity", "inherited_pretax", "trust", "daf", "cash_reserve"):
                 self.error(f"{ppath}.account", f"recurring contributions to a {kind} account are not supported.")
             if kind == "401k":
                 if plan.source != "payroll":
@@ -1286,11 +1290,15 @@ class _SpecChecker:
                     self.error(f"{path}.debt", f"home {event.debt!r} has no mortgage to refinance", code="invalid")
             if isinstance(event, s.HelocDrawEvent) and not is_kind(event.heloc, s.HomeEquityLine):
                 self.error(f"{path}.heloc", f"unknown home equity line {event.heloc!r}", code="unknown_reference")
+            if isinstance(event, s.ReserveCashEvent):
+                target = item_ids.get(event.bank)
+                if target is None or target[0] != event.person or not isinstance(target[2], s.BankAccount):
+                    self.error(f"{path}.bank", "Funding bank must be owned by the person setting aside cash.")
             if isinstance(event, s.ContributeEvent):
                 target = item_ids.get(event.account)
                 if target is None or target[1] != "accounts":
                     self.error(f"{path}.account", f"unknown account {event.account!r}", code="unknown_reference")
-                elif target[2].kind in ("401k", "pension", "annuity", "inherited_pretax", "trust"):
+                elif target[2].kind in ("401k", "pension", "annuity", "inherited_pretax", "trust", "cash_reserve"):
                     self.error(
                         f"{path}.account",
                         f"one-time contributions to a {target[2].kind} account are not supported.",
@@ -1308,7 +1316,7 @@ class _SpecChecker:
                     kind = target[2].kind
                     if event.bucket is not None and kind != "401k":
                         self.error(f"{path}.bucket", "bucket is for 401k accounts.")
-                    if kind in ("pension", "annuity", "inherited_pretax", "trust", "daf"):
+                    if kind in ("pension", "annuity", "inherited_pretax", "trust", "daf", "cash_reserve"):
                         self.error(f"{path}.account", f"recurring contributions to a {kind} account are not supported.")
                     if kind == "401k" and target[2].job is None and isinstance(event, s.ChangeContributionEvent):
                         self.error(f"{path}.account", "a 401k without a job takes no contributions.")
