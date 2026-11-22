@@ -171,7 +171,7 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "shortfall_debt": "Detail: bills the household could not pay, carried as debt (amount, cause).",
     "refinanced": "A loan was refinanced (amount: the new principal; cause: the refinance).",
     "mortgage_paid_at_maturity": "A mortgage was paid off from bank cash (amount: principal plus final interest; "
-    "details: date, principal, interest_due, cash_to_keep).",
+    "details: date, principal, interest_due, cash_to_keep, bridge_draw when a bridge is supplied).",
 }
 
 _DETAIL_KINDS = frozenset(

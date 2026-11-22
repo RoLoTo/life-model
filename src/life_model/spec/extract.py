@@ -1181,6 +1181,12 @@ class _Extractor:
         }
         events = [source for source in self.pending_sources() if not isinstance(source, s.Marriage)]
         events = [event for event in events if not (isinstance(event, s.RepayBridgeEvent) and event.bridge in closed)]
+        events = [
+            event.model_copy(update={"bridge": None})
+            if isinstance(event, s.MortgageMaturityEvent) and event.bridge in closed
+            else event
+            for event in events
+        ]
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
 

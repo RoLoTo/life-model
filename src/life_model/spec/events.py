@@ -470,21 +470,27 @@ def _pay_mortgage_at_maturity(builder: "_Builder", person, event: s.MortgageMatu
         raise ValueError("Mortgage payoff needs an existing mortgage on the borrower's home")
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
-    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_to_keep=event.cash_to_keep)
+    bridge = _owned_bridge(builder, person, event.bridge) if event.bridge is not None else None
+    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_to_keep=event.cash_to_keep, bridge=bridge)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:
     builder.built.items[event.heloc].draw(event.amount, for_improvements=event.for_improvements)
 
 
+def _owned_bridge(builder: "_Builder", person, bridge_id: str):
+    from ..debt.bridge import DatedBridgeLine
+
+    line = builder.built.items.get(bridge_id)
+    if not isinstance(line, DatedBridgeLine) or line.person is not person:
+        raise ValueError("The borrower must own the approved bridge line")
+    return line
+
+
 def _bridge_transaction(builder: "_Builder", person, event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
     from datetime import date
 
-    from ..debt.bridge import DatedBridgeLine
-
-    line = builder.built.items.get(event.bridge)
-    if not isinstance(line, DatedBridgeLine) or line.person is not person:
-        raise ValueError("The borrower must own the approved bridge line")
+    line = _owned_bridge(builder, person, event.bridge)
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
     if isinstance(event, s.DrawBridgeEvent):

@@ -1299,7 +1299,7 @@ class _SpecChecker:
                     self.error(f"{path}.debt", f"home {event.debt!r} has no mortgage to refinance", code="invalid")
             if isinstance(event, s.HelocDrawEvent) and not is_kind(event.heloc, s.HomeEquityLine):
                 self.error(f"{path}.heloc", f"unknown home equity line {event.heloc!r}", code="unknown_reference")
-            if isinstance(event, s.BridgeEvent):
+            if isinstance(event, s.BridgeEvent | s.MortgageMaturityEvent) and event.bridge is not None:
                 bridge = item_ids.get(event.bridge)
                 if bridge is None or bridge[0] != event.person or not isinstance(bridge[2], s.BridgeLine):
                     self.error(f"{path}.bridge", "must be an approved bridge line owned by the borrower")

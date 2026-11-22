@@ -3019,6 +3019,9 @@ class MortgageMaturityEvent(EventBase):
     cash_to_keep: NonNegativeMoney = spec_field(
         0.0, description="Minimum spendable bank cash to keep after payoff.", unit="USD", allow_inf_nan=False
     )
+    bridge: Identifier | None = spec_field(
+        None, description="Borrower's approved bridge line. Draw only the cash shortfall including the floor."
+    )
 
     @model_validator(mode="after")
     def _full_date(self) -> "MortgageMaturityEvent":
