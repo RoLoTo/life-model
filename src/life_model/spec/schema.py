@@ -3006,19 +3006,11 @@ class RefinanceEvent(EventBase):
         return self
 
 
-class MortgageRenewalAt(At):
-    """A calendar month, with the first day implied when omitted."""
-
-    year: Year = spec_field(description="Calendar year of the renewal.", unit="year")
-    month: int = spec_field(description="Calendar month of the renewal.", unit="month", ge=1, le=12)
-    day: Literal[1] | None = spec_field(None, description="If supplied, must be the first day.")
-
-
 class MortgageRenewalEvent(EventBase):
     """Renew a mortgage before the specified month's payment, with no new borrowing or fees."""
 
     action: Literal["renew_mortgage"]
-    at: MortgageRenewalAt = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
+    at: At = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     rate_pct: NonNegativePercent = spec_field(description="New quoted annual rate.", unit="percent")
     rate_compounding: MortgageRateCompounding = spec_field(
@@ -3030,6 +3022,13 @@ class MortgageRenewalEvent(EventBase):
         unit="months",
         ge=1,
     )
+
+    @model_validator(mode="after")
+    def _first_day(self) -> "MortgageRenewalEvent":
+        when = self.at
+        if when.year is None or when.month is None or when.day not in (None, 1):
+            raise ValueError("A mortgage renewal requires the first day of an explicit calendar month")
+        return self
 
 
 class HelocDrawEvent(EventBase):

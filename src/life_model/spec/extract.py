@@ -1146,9 +1146,6 @@ class _Extractor:
             if isinstance(source, s.Marriage):
                 retimed.append(source.model_copy(update={"year": first_year}))
                 continue
-            if isinstance(source, s.MortgageRenewalEvent):
-                retimed.append(source)  # Always dated in an explicit calendar month.
-                continue
             at = s.At(year=first_year, month=first_month, day=first_day)
             relative = source.at.relative
             if first_day is not None and relative is not None:

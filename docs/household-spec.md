@@ -1314,7 +1314,7 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
 | `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
-| `at` | [MortgageRenewalAt](#mortgagerenewalat) |  | **required** |  | Effective month as YYYY-MM or {year, month, day: 1}. |
+| `at` | [At](#at) |  | **required** |  | Effective month as YYYY-MM or {year, month, day: 1}. |
 | `person` | string |  | **required** |  | Person the event applies to. |
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"renew_mortgage"` |  | **required** |  |  |
@@ -1322,19 +1322,6 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | `rate_pct` | number | percent | **required** |  | New quoted annual rate. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted annual rate. |
 | `amortization_months` | integer (optional) | months | — |  | Number of new monthly payments. By default, keep the scheduled number of payments remaining. |
-
-## MortgageRenewalAt
-
-A calendar month, with the first day implied when omitted.
-
-| Field | Type | Unit | Default | Maps to | Description |
-|---|---|---|---|---|---|
-| `year` | integer | year | **required** |  | Calendar year of the renewal. |
-| `age` | integer (optional) | age | — |  | Age (whole years) of the event's person. |
-| `person` | string (optional) |  | — |  | Whose age 'age' refers to. Defaults to the event's person. |
-| `relative` | [Relative](#relative) (optional) |  | — |  | Relative to another event. |
-| `month` | integer | month | **required** |  | Calendar month of the renewal. |
-| `day` | `1` (optional) |  | — |  | If supplied, must be the first day. |
 
 ## HelocDrawEvent
 
