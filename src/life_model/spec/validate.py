@@ -1077,7 +1077,7 @@ class _SpecChecker:
         if isinstance(account, s.Annuity) and account.joint_annuitant is not None:
             self.check_person_ref(account.joint_annuitant, f"{path}.joint_annuitant")
 
-    def check_loan(self, m, path: str, *, as_of: tuple[int, int] | None = None) -> bool:
+    def check_loan(self, m, path: str, *, as_of: tuple[int, int] | None = None, rate_pct: float | None = None) -> bool:
         """Resolve a loan's statement inputs like the builder does; an inconsistency is an error naming the
         field. Returns True when the loan resolved."""
         from ..debt.terms import LoanTermsError, resolve_loan_terms
@@ -1099,7 +1099,7 @@ class _SpecChecker:
             origination = f"{start_year}-01"
         try:
             resolve_loan_terms(
-                rate_pct=m.rate_pct,
+                rate_pct=m.rate_pct if rate_pct is None else rate_pct,
                 as_of=as_of or (self.start, self.start_month),
                 original_amount=m.original_amount,
                 term_months=term,
@@ -1119,13 +1119,16 @@ class _SpecChecker:
         return True
 
     def check_mortgage(self, m: s.Mortgage, path: str, *, as_of: tuple[int, int] | None = None) -> None:
-        if not self.check_loan(m, path, as_of=as_of):
+        from ..debt.terms import mortgage_rate_on_monthly_basis
+
+        rate_pct = mortgage_rate_on_monthly_basis(m.rate_pct, m.rate_compounding)
+        if not self.check_loan(m, path, as_of=as_of, rate_pct=rate_pct):
             return
         if m.original_amount is None or m.term_years is None or m.origination is not None:
             return  # statement inputs: resolved (and checked) above
         origin = m.start_year if m.start_year is not None else self.start
         elapsed = self.start - origin
-        payment = _amortized_payment(m.original_amount, m.rate_pct, m.term_years)
+        payment = _amortized_payment(m.original_amount, rate_pct, m.term_years)
         if origin > self.start:
             self.warn(
                 f"{path}.start_year",
@@ -1151,7 +1154,7 @@ class _SpecChecker:
                 "mortgage_inconsistent",
             )
             return
-        expected = _remaining_balance(m.original_amount, m.rate_pct, m.term_years, elapsed * 12)
+        expected = _remaining_balance(m.original_amount, rate_pct, m.term_years, elapsed * 12)
         if m.balance is None and m.payments_made is None:
             self.warn(
                 f"{path}.start_year",
@@ -1274,12 +1277,16 @@ class _SpecChecker:
                     self.error(f"{path}.sell_home", f"unknown home {event.sell_home!r}", code="unknown_reference")
             if isinstance(event, s.SellHomeEvent) and not is_kind(event.home, s.Home):
                 self.error(f"{path}.home", f"unknown home {event.home!r}", code="unknown_reference")
-            if isinstance(event, s.MortgageMaturityEvent | s.MortgagePrepaymentEvent):
+            if isinstance(event, s.MortgageRenewalEvent | s.MortgageMaturityEvent | s.MortgagePrepaymentEvent):
                 target = item_ids.get(event.home)
                 if target is None or target[0] != event.person or not isinstance(target[2], s.Home):
                     self.error(f"{path}.home", "must be a home owned by the borrower", code="unknown_reference")
                 elif target[2].mortgage is None:
-                    operation = "prepay" if isinstance(event, s.MortgagePrepaymentEvent) else "pay off"
+                    operation = {
+                        "renew_mortgage": "renew",
+                        "pay_mortgage_at_maturity": "pay off",
+                        "prepay_mortgage": "prepay",
+                    }[event.action]
                     self.error(f"{path}.home", f"the home has no mortgage to {operation}")
             if isinstance(event, s.RefinanceEvent):
                 target = item_ids.get(event.debt, (None, None, None))[2]

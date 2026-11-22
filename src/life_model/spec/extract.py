@@ -895,12 +895,15 @@ class _Extractor:
             if home.mortgage is not None:
                 m = home.mortgage
                 terms = self.loan_terms(m)
+                if m.rate_compounding == "semiannual":
+                    terms["rate_pct"] = m.quoted_rate_pct
                 start_year = getattr(m, "spec_start_year", None) if not self.stepped else None
                 if start_year is None and m.start_date is not None and getattr(m, "spec_loan_inputs", None) is None:
                     start_year = _none_if(int(m.start_date), start)
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
+                    rate_compounding=m.rate_compounding,
                     **terms,
                 )
             e = home.expenses
@@ -1136,11 +1139,14 @@ class _Extractor:
             key: min(pending, key=lambda when: (when[0], when[1] or 0, when[2] or 1)) for key, pending in dates.items()
         }
         by_spec_id = {source.id: source for source in sources if isinstance(source, s.EventBase) and source.id}
-        retimed = []
+        retimed: list[s.Marriage | s.Event] = []
         for source in sources:
             first_year, first_month, first_day = first_pending[id(source)]
             if isinstance(source, s.Marriage):
                 retimed.append(source.model_copy(update={"year": first_year}))
+                continue
+            if isinstance(source, s.MortgageRenewalEvent):
+                retimed.append(source)  # Always dated in an explicit calendar month.
                 continue
             at = s.At(year=first_year, month=first_month, day=first_day)
             relative = source.at.relative

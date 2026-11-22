@@ -34,6 +34,8 @@ from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..debt.terms import MortgageRateCompounding
+
 #: Version of the spec format written by :func:`life_model.spec.io.dump`.
 SPEC_VERSION = 1
 
@@ -1802,6 +1804,12 @@ class Mortgage(_LoanTerms):
 
     CORE_CLASS = "Mortgage"
 
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly",
+        description="Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent.",
+        core="Mortgage.rate_compounding",
+    )
+
     start_year: Year | None = spec_field(
         None,
         description="Year the loan was originated (prefer origination). Without a balance, a year before the start "
@@ -2971,6 +2979,32 @@ class RefinanceEvent(EventBase):
         return self
 
 
+class MortgageRenewalAt(At):
+    """A calendar month, with the first day implied when omitted."""
+
+    year: Year = spec_field(description="Calendar year of the renewal.", unit="year")
+    month: int = spec_field(description="Calendar month of the renewal.", unit="month", ge=1, le=12)
+    day: Literal[1] | None = spec_field(None, description="If supplied, must be the first day.")
+
+
+class MortgageRenewalEvent(EventBase):
+    """Renew a mortgage before the specified month's payment, with no new borrowing or fees."""
+
+    action: Literal["renew_mortgage"]
+    at: MortgageRenewalAt = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    rate_pct: NonNegativePercent = spec_field(description="New quoted annual rate.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly", description="Compounding of the quoted annual rate."
+    )
+    amortization_months: int | None = spec_field(
+        None,
+        description="Number of new monthly payments. By default, keep the scheduled number of payments remaining.",
+        unit="months",
+        ge=1,
+    )
+
+
 class MortgageMaturityEvent(EventBase):
     """Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date."""
 
@@ -3059,6 +3093,7 @@ Event = Annotated[
     | ClaimSocialSecurityEvent
     | DieEvent
     | RefinanceEvent
+    | MortgageRenewalEvent
     | MortgageMaturityEvent
     | MortgagePrepaymentEvent
     | HelocDrawEvent
@@ -3086,6 +3121,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "claim_social_security",
     "die",
     "refinance",
+    "renew_mortgage",
     "pay_mortgage_at_maturity",
     "prepay_mortgage",
     "heloc_draw",

@@ -268,6 +268,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         name = _name(event, f"{person.name} refinances at {event.rate_pct:g}%")
         return [_life_event(year, name, event, _refinance, builder, event)]
 
+    if action == "renew_mortgage":
+        name = _name(event, f"{person.name} renews the mortgage at {event.rate_pct:g}%")
+        return [_life_event(year, name, event, _renew_mortgage, builder, event)]
+
     if action == "pay_mortgage_at_maturity":
         name = _name(event, f"{person.name} pays off the mortgage at maturity")
         return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, person, event)]
@@ -449,6 +453,20 @@ def _refinance(builder: "_Builder", event: s.RefinanceEvent) -> None:
     if isinstance(target, Home):
         kwargs["cash_out_for_improvements"] = event.cash_out_for_improvements
     loan.refinance(event.rate_pct, **kwargs)
+
+
+def _renew_mortgage(builder: "_Builder", event: s.MortgageRenewalEvent) -> None:
+    home = builder.built.items.get(event.home)
+    if home is None:
+        raise ValueError(f"Home {event.home!r} must exist before its mortgage can be renewed")
+    if home.sold or home.mortgage is None or home.mortgage.principal <= 0:
+        builder.model.event_log.add(Event(f"mortgage renewal skipped: {event.home} has no outstanding mortgage"))
+        return
+    home.mortgage.renew(
+        rate_pct=event.rate_pct,
+        rate_compounding=event.rate_compounding,
+        amortization_months=event.amortization_months,
+    )
 
 
 def _pay_mortgage_at_maturity(builder: "_Builder", person, event: s.MortgageMaturityEvent) -> None:

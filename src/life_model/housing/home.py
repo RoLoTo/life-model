@@ -11,6 +11,7 @@ from decimal import ROUND_DOWN, Decimal
 from typing import ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
+from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind
 from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
@@ -638,6 +639,7 @@ class Mortgage(Loan):
         escrow_monthly: float | None = None,
         extra_principal_monthly: float = 0.0,
         schedule: str = "contract",
+        rate_compounding: MortgageRateCompounding = "monthly",
     ):
         """Mortgage
 
@@ -651,7 +653,9 @@ class Mortgage(Loan):
                 the run is taken as an origination in January of that year (the balance is then the
                 schedule's); prefer ``origination``.
             term_years (float): Original term in years (e.g. 30, 15); or ``term_months``.
-            rate_pct (float): APR, percent.
+            rate_pct (float): Quoted annual mortgage rate, percent.
+            rate_compounding (str, optional): Compounding convention of the quoted rate, monthly
+                by default. Semiannual quotes are converted to an equivalent monthly rate.
             current_balance (float, optional): Current balance. Defaults to the schedule's (the original
                 amount for a new loan).
             payment_monthly (float, optional): Principal and interest per month (computed when None);
@@ -666,7 +670,10 @@ class Mortgage(Loan):
                 above the original schedule; see :mod:`life_model.debt.terms`).
         """
         loan_amount, start_date, length_years = original_amount, start_year, term_years
-        yearly_interest_rate, principal, monthly_payment = rate_pct, current_balance, payment_monthly
+        self.quoted_rate_pct = rate_pct
+        self.rate_compounding = rate_compounding
+        yearly_interest_rate = None if rate_pct is None else mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
+        principal, monthly_payment = current_balance, payment_monthly
         # Intentionally does NOT call Loan.__init__ (no person/model yet); resolve the loan data
         # directly and register as an agent later in _attach.
         self.person = None
@@ -861,6 +868,48 @@ class Mortgage(Loan):
         acquisition = average if self.acquisition_cap is None else min(average, self.acquisition_cap)
         return acquisition, min(acquisition, self.grandfathered_cap)
 
+    def renew(
+        self,
+        *,
+        rate_pct: float,
+        rate_compounding: MortgageRateCompounding = "monthly",
+        amortization_months: int | None = None,
+    ) -> None:
+        """Reprice the outstanding principal before the current month's payment.
+
+        Use the remaining scheduled months unless a new amortization is given.
+        The balance, acquisition debt classification and payment history carry forward.
+        """
+        if self.principal <= 0:
+            return
+        remaining = self.remaining_months if amortization_months is None else amortization_months
+        if remaining <= 0:
+            raise ValueError("A mortgage renewal requires a positive amortization in months")
+        if not math.isfinite(rate_pct) or rate_pct < 0:
+            raise ValueError("A mortgage renewal requires a finite, non-negative rate")
+        rate = mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
+        effective_date = date(self.model.year, self.model.month, 1)
+        # Payment one is in this month; snapshots use the actual count of payments made.
+        self._reset_loan_schedule(self.principal, rate, remaining)
+        self.quoted_rate_pct = rate_pct
+        self.rate_compounding = rate_compounding
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_RENEWED,
+                person=self.person,
+                amount=self.principal,
+                account=self,
+                cause="mortgage renewal",
+                date=effective_date.isoformat(),
+                rate_pct=rate_pct,
+                rate_compounding=rate_compounding,
+                amortization_months=remaining,
+                monthly_payment=self.monthly_payment,
+                message=f"{self.person.name} renewed the mortgage at {rate_pct:g}% for {remaining} payments "
+                f"(${self.monthly_payment:,.2f}/month)",
+            )
+        )
+
     def refinance(
         self,
         rate_pct: float,
@@ -874,9 +923,10 @@ class Mortgage(Loan):
     ) -> float:
         """Refinance (see :meth:`Loan.refinance`). A cash-out beyond the old balance is home-equity
         debt (its interest not deductible after 2017) unless ``cash_out_for_improvements`` (it then
-        adds to the home's cost basis as an improvement and is acquisition debt)."""
+        adds to the home's cost basis as an improvement and is acquisition debt). The new rate
+        is quoted with monthly compounding."""
         self._cash_out_for_improvements = cash_out_for_improvements
-        return super().refinance(
+        new_principal = super().refinance(
             rate_pct,
             term_months=term_months,
             term_years=term_years,
@@ -884,6 +934,9 @@ class Mortgage(Loan):
             finance_costs=finance_costs,
             cash_out=cash_out,
         )
+        self.quoted_rate_pct = rate_pct
+        self.rate_compounding = "monthly"
+        return new_principal
 
     def _pay_cash_out(self, amount: float, cause: str) -> None:
         home = getattr(self, "home", None)
