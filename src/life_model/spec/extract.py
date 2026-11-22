@@ -829,6 +829,8 @@ class _Extractor:
         }
 
     def debts(self, person, housing: list | None = None) -> list:
+        from ..debt.bridge import DatedBridgeLine
+
         out: list = []
         for loan in person.car_loans:
             out.append(s.CarLoan(kind="car", id=self.item_id(loan), name=loan.name, **self.loan_terms(loan)))
@@ -868,9 +870,26 @@ class _Extractor:
                 )
             )
         for line in person.home_equity_lines:
+            if isinstance(line, DatedBridgeLine) and line.home.sold:
+                continue
             home_id = getattr(line.home, "spec_id", None) or self.item_ids.get(id(line.home))
             if home_id is None:
                 continue  # its home has no id to reference (or was sold)
+            if isinstance(line, DatedBridgeLine):
+                out.append(
+                    s.BridgeLine(
+                        kind="bridge_line",
+                        id=self.item_id(line),
+                        home=home_id,
+                        name=_none_if(line.name, f"Bridge on {line.home.name}"),
+                        credit_limit=line.credit_limit,
+                        rate_pct=line.yearly_interest_rate,
+                        drawn_principal=float(line.drawn_principal),
+                        accrued_interest=line.accrued_interest,
+                        accrued_through=line.accrued_through,
+                    )
+                )
+                continue
             out.append(
                 s.HomeEquityLine(
                     kind="heloc",
@@ -1155,7 +1174,13 @@ class _Extractor:
         return retimed
 
     def events(self) -> list:
+        from ..debt.bridge import DatedBridgeLine
+
+        closed = {
+            self.item_id(line) for line in self.model.agents if isinstance(line, DatedBridgeLine) and line.home.sold
+        }
         events = [source for source in self.pending_sources() if not isinstance(source, s.Marriage)]
+        events = [event for event in events if not (isinstance(event, s.RepayBridgeEvent) and event.bridge in closed)]
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
 

@@ -105,7 +105,7 @@ ACCOUNT_KIND_ORDER = (
     "trust",
     "529",
 )
-DEBT_KIND_ORDER = ("car", "student", "credit_card", "heloc")
+DEBT_KIND_ORDER = ("car", "student", "credit_card", "heloc", "bridge_line")
 HOUSING_KIND_ORDER = ("home", "rental")
 INSURANCE_KIND_ORDER = (
     "life",
@@ -866,6 +866,19 @@ class _Builder:
                 payment_monthly=debt.payment_monthly,
                 name=debt.name,
             )
+        if debt.kind == "bridge_line":
+            from ..debt.bridge import DatedBridgeLine
+
+            return DatedBridgeLine(
+                owner=person,
+                home=self.built.items[debt.home],
+                credit_limit=debt.credit_limit,
+                rate_pct=debt.rate_pct,
+                name=debt.name,
+                drawn_principal=debt.drawn_principal,
+                accrued_interest=debt.accrued_interest,
+                accrued_through=debt.accrued_through,
+            )
         raise NotImplementedError(f"debt kind {debt.kind!r} is not supported by the builder")
 
     def build_home(self, person, home: s.Home, *, purchase: bool | None = None):
@@ -1131,12 +1144,13 @@ class _Builder:
         late = ("bank", "401k", *LATE_ACCOUNT_KINDS)
         for p, i, item in each("accounts", lambda a: a.kind not in late):
             self._register(p, "accounts", i, item, self.build_account(self.person(p.id), p, item))
-        for p, i, item in each("debts", lambda d: d.kind != "heloc"):
+        secured_debts = ("heloc", "bridge_line")
+        for p, i, item in each("debts", lambda d: d.kind not in secured_debts):
             self._register(p, "debts", i, item, self.build_debt(self.person(p.id), item))
         for p, i, item in each("housing"):
             self._register(p, "housing", i, item, self.build_housing(self.person(p.id), item))
-        # Home equity lines are secured by a home, so they follow housing.
-        for p, i, item in each("debts", lambda d: d.kind == "heloc"):
+        # Secured lines follow the homes they reference.
+        for p, i, item in each("debts", lambda d: d.kind in secured_debts):
             self._register(p, "debts", i, item, self.build_debt(self.person(p.id), item))
         for p, i, item in each("insurance"):
             self._register(p, "insurance", i, item, self.build_insurance(self.person(p.id), item))

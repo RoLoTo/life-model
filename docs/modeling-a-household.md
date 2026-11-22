@@ -58,6 +58,15 @@ comes from spendable bank cash, excluding emergency reserves. When relying on a 
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
 A cash shortfall stops the run before any payoff is posted.
 
+Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
+home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
+its `amount` in spendable bank cash. A `repay_bridge` event pays the full principal and interest
+from that cash, with an optional `cash_to_keep` floor. Both events require an explicit calendar
+date. Interest accrues on drawn principal using actual days divided by 365. Outstanding
+interest counts toward liabilities, and the approved limit applies to principal. A sale of
+the collateral clears the bridge through the sale date before depositing the net proceeds.
+For same-day events that rely on one another, give them IDs that sort in the intended order.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked
