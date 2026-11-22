@@ -63,6 +63,13 @@ comes from spendable bank cash, excluding emergency reserves. When relying on a 
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
 A cash shortfall stops the run before any payoff is posted.
 
+Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
+to principal after scheduled bills. Set `cash_to_keep` to retain a cash floor and
+`cash_fraction` to use only a portion of the surplus (for example, `0.5` for half).
+The regular payment stays the same. December tax settlement follows the prepayment stage.
+Include any cash needed for that settlement in the December floor. Enter only prepayments
+permitted under the mortgage contract.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked

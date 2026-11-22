@@ -145,6 +145,7 @@ class EventKind(str, Enum):
     REFINANCED = "refinanced"
     MORTGAGE_RENEWED = "mortgage_renewed"
     MORTGAGE_PAID_AT_MATURITY = "mortgage_paid_at_maturity"
+    MORTGAGE_PREPAYMENT = "mortgage_prepayment"
 
     @property
     def is_detail(self) -> bool:
@@ -175,6 +176,8 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "rate_pct, rate_compounding, amortization_months, monthly_payment).",
     "mortgage_paid_at_maturity": "A mortgage was paid off from bank cash (amount: principal plus final interest; "
     "details: date, principal, interest_due, cash_to_keep).",
+    "mortgage_prepayment": "Month-end cash was applied to mortgage principal (amount: principal paid; "
+    "details: date, cash_before, cash_to_keep, cash_fraction, requested).",
 }
 
 _DETAIL_KINDS = frozenset(

@@ -1281,12 +1281,16 @@ class _SpecChecker:
                     self.error(f"{path}.sell_home", f"unknown home {event.sell_home!r}", code="unknown_reference")
             if isinstance(event, s.SellHomeEvent) and not is_kind(event.home, s.Home):
                 self.error(f"{path}.home", f"unknown home {event.home!r}", code="unknown_reference")
-            if isinstance(event, s.MortgageRenewalEvent | s.MortgageMaturityEvent):
+            if isinstance(event, s.MortgageRenewalEvent | s.MortgageMaturityEvent | s.MortgagePrepaymentEvent):
                 target = item_ids.get(event.home)
                 if target is None or target[0] != event.person or not isinstance(target[2], s.Home):
                     self.error(f"{path}.home", "must be a home owned by the borrower", code="unknown_reference")
                 elif target[2].mortgage is None:
-                    operation = "renew" if isinstance(event, s.MortgageRenewalEvent) else "pay off"
+                    operation = {
+                        "renew_mortgage": "renew",
+                        "pay_mortgage_at_maturity": "pay off",
+                        "prepay_mortgage": "prepay",
+                    }[event.action]
                     self.error(f"{path}.home", f"the home has no mortgage to {operation}")
             if isinstance(event, s.RefinanceEvent):
                 target = item_ids.get(event.debt, (None, None, None))[2]
