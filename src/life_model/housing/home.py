@@ -4,15 +4,29 @@
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
 import html
+import math
+from datetime import date
 from typing import ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind
-from ..model import Event, EventKind, LifeModel, LifeModelAgent
+from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
+
+
+class MortgagePayoffShortfall(ValueError):
+    """Additional spendable bank cash required to discharge a mortgage on its due date."""
+
+    def __init__(self, *, when: date, payoff: float, bank_cash: float, cash_to_keep: float):
+        self.when = when
+        self.payoff = payoff
+        self.bank_cash = bank_cash
+        self.cash_to_keep = cash_to_keep
+        self.amount = snap_money(payoff + cash_to_keep - bank_cash)
+        super().__init__(f"Mortgage payoff on {when.isoformat()} needs {self.amount:,.2f} in additional bank cash")
 
 
 class Home(LifeModelAgent):
@@ -724,6 +738,57 @@ class Mortgage(Loan):
         cutoff = parse_origination(self.model.config.tax.federal.mortgage_interest_grandfather_date)
         if self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
+
+    def pay_at_maturity(self, when: date, *, interest_due: float, cash_to_keep: float = 0.0) -> None:
+        """Discharge the live principal and the lender's quoted final interest from bank cash.
+
+        Raises MortgagePayoffShortfall before withdrawing anything if the payoff and cash floor
+        exceed the borrower's usable bank cash. Use the month's events stage before scheduled bills.
+        """
+        if (when.year, when.month) != (self.model.year, self.model.month):
+            raise ValueError("A mortgage payoff must execute in its scheduled month")
+        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_to_keep)):
+            raise ValueError("Final interest and cash to keep must be finite and non-negative")
+        if self.principal <= 0:
+            return
+        person = self.person
+        principal = self.principal
+        payoff = principal + interest_due
+        bank_cash = person.usable_bank_balance
+        if snap_money(payoff + cash_to_keep - bank_cash) > 0:
+            raise MortgagePayoffShortfall(when=when, payoff=payoff, bank_cash=bank_cash, cash_to_keep=cash_to_keep)
+
+        person.deduct_from_bank_accounts(
+            principal, kind=FlowKind.HOUSING, to_account=self, cause="mortgage payoff principal", include_reserve=False
+        )
+        person.deduct_from_bank_accounts(
+            interest_due,
+            kind=FlowKind.HOUSING,
+            sink="mortgage interest",
+            cause="mortgage payoff interest",
+            include_reserve=False,
+        )
+        self._month_start_balances.append(principal)
+        self.principal = 0.0
+        self.payments_made += 1
+        self.stat_principal_payment_history.append(principal)
+        self.stat_interest_payment_history.append(interest_due)
+        self._record_month(principal, interest_due)
+        person.stat_housing_costs = snap_money(person.stat_housing_costs + payoff)
+        person.stat_interest_paid = snap_money(person.stat_interest_paid + interest_due)
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_PAID_AT_MATURITY,
+                person=person,
+                account=self,
+                amount=payoff,
+                cause="mortgage payoff",
+                date=when.isoformat(),
+                principal=principal,
+                interest_due=interest_due,
+                cash_to_keep=cash_to_keep,
+            )
+        )
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
 

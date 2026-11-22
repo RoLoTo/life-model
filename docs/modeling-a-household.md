@@ -51,6 +51,13 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 | Marriage | `relationships.marriages[]`: `spouses` (the first is the tax-unit head), `filing_status` |
 | Plans | `events[]`: `at: {year}` / `{age}` / `{relative: {after, years}}`, `person`, `action` (`retire`, `change_job`, `move`, `buy_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `contribute`, `convert_to_roth`, `claim_social_security`, `refinance`, `heloc_draw`, `disability`, ...) |
 
+Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
+`at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
+month's regular bills. The optional `cash_to_keep` is a minimum immediately after payoff. Funding
+comes from spendable bank cash, excluding emergency reserves. When relying on a same-day receipt,
+give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
+A cash shortfall stops the run before any payoff is posted.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked

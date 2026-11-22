@@ -266,6 +266,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         name = _name(event, f"{person.name} refinances at {event.rate_pct:g}%")
         return [_life_event(year, name, event, _refinance, builder, event)]
 
+    if action == "pay_mortgage_at_maturity":
+        name = _name(event, f"{person.name} pays off the mortgage at maturity")
+        return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, person, event)]
+
     if action == "heloc_draw":
         name = _name(event, f"{person.name} draws ${event.amount:,.0f} on a home equity line")
         return [_life_event(year, name, event, _heloc_draw, builder, event)]
@@ -439,6 +443,19 @@ def _refinance(builder: "_Builder", event: s.RefinanceEvent) -> None:
     if isinstance(target, Home):
         kwargs["cash_out_for_improvements"] = event.cash_out_for_improvements
     loan.refinance(event.rate_pct, **kwargs)
+
+
+def _pay_mortgage_at_maturity(builder: "_Builder", person, event: s.MortgageMaturityEvent) -> None:
+    from datetime import date
+
+    from ..housing.home import Home
+
+    home = builder.built.items.get(event.home)
+    if not isinstance(home, Home) or home.person is not person or home.mortgage is None:
+        raise ValueError("Mortgage payoff needs an existing mortgage on the borrower's home")
+    assert event.at.year is not None and event.at.month is not None and event.at.day is not None
+    when = date(event.at.year, event.at.month, event.at.day)
+    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_to_keep=event.cash_to_keep)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:
