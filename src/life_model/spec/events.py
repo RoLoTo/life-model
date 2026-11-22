@@ -474,7 +474,7 @@ def _prepay_mortgage(builder: "_Builder", person, event: s.MortgagePrepaymentEve
         raise ValueError("A mortgage prepayment needs an existing mortgage on the borrower's home")
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
-    home.mortgage.prepay_surplus(when, cash_fraction=event.cash_fraction, cash_to_keep=event.cash_to_keep)
+    home.mortgage.prepay_surplus(when, cash_fraction=event.cash_fraction, cash_floor=event.cash_floor)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:

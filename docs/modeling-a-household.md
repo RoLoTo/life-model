@@ -59,11 +59,15 @@ give both events IDs that sort with the receipt first (for example, `01-sale` an
 A cash shortfall stops the run before any payoff is posted.
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
-to principal after scheduled bills. Set `cash_to_keep` to retain a cash floor and
-`cash_fraction` to use only a portion of the surplus (for example, `0.5` for half).
-The regular payment stays the same. December tax settlement follows the prepayment stage.
-Include any cash needed for that settlement in the December floor. Enter only prepayments
+to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
+contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
+year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
+surplus (for example, `0.5` for half). Scheduled instalments continue at the contracted amount. Enter only prepayments
 permitted under the mortgage contract.
+
+In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
+sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's
+floor. Tax-advantaged sweeps run at the start of the following year.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that

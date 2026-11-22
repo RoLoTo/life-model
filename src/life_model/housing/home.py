@@ -792,22 +792,25 @@ class Mortgage(Loan):
             )
         )
 
-    def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_to_keep: float = 0.0) -> float:
-        """Pay a fraction of spendable bank cash above a floor to principal after the month's bills."""
+    def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_floor: float = 0.0) -> float:
+        """Pay a fraction of cash above the tax holdback and cash floor after the month's bills."""
+        from ..policies import available_cash_after_tax
+
         if (when.year, when.month) != (self.model.year, self.model.month) or self.model.current_stage != "post_step":
             raise ValueError("A surplus prepayment must execute after bills in its scheduled month")
         if when.day != monthrange(when.year, when.month)[1]:
             raise ValueError("A surplus prepayment must be dated on the last day of the month")
         if not 0 <= cash_fraction <= 1:
             raise ValueError("The prepayment cash fraction must be between zero and one")
-        if not math.isfinite(cash_to_keep) or cash_to_keep < 0:
+        if not math.isfinite(cash_floor) or cash_floor < 0:
             raise ValueError("The prepayment cash floor must be finite and non-negative")
         if self.principal <= 0:
             return 0.0
 
         person = self.person
         cash_before = person.usable_bank_balance
-        surplus = max(0.0, snap_money(cash_before - cash_to_keep))
+        cash_after_tax = available_cash_after_tax(person)
+        surplus = max(0.0, snap_money(cash_after_tax - cash_floor))
         wanted = Decimal(str(surplus)) * Decimal(str(cash_fraction))
         requested = float(wanted.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
         paid = min(self.principal, requested)
@@ -829,7 +832,8 @@ class Mortgage(Loan):
                 cause="month-end surplus",
                 date=when.isoformat(),
                 cash_before=cash_before,
-                cash_to_keep=cash_to_keep,
+                cash_floor=cash_floor,
+                tax_holdback=snap_money(cash_before - cash_after_tax),
                 cash_fraction=cash_fraction,
                 requested=requested,
             )
