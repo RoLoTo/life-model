@@ -123,8 +123,8 @@ def account_residuals(
     minus the ledger's net posting to that label, for lines where they differ by more than
     ``tolerance``.
 
-    Settlement posts household bills from one payer account, so a spouse's bank can show offsetting
-    residuals; a line whose residual does not cancel against another one points at the bug.
+    The December lump-sum tax settlement posts from one payer account even when several banks
+    fund it. This can leave offsetting residuals across those banks.
     """
     balances = model.balance_sheets[year] if month is None else model.month_balance_sheets[(year, month)]
     entries = model.ledger.between(balances.ledger_start, balances.ledger_end)
