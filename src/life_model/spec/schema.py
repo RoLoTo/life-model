@@ -3242,15 +3242,15 @@ class MortgageMaturityEvent(EventBase):
 
 
 class MortgagePrepaymentEvent(EventBase):
-    """Apply surplus spendable bank cash to mortgage principal after the month's bills."""
+    """Apply surplus bank cash to mortgage principal after bills, reserving cash for taxes."""
 
     action: Literal["prepay_mortgage"]
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     cash_fraction: float = spec_field(
-        1.0, description="Fraction of spendable cash above the floor to pay, between zero and one.", ge=0, le=1
+        1.0, description="Fraction of cash above the tax holdback and floor to pay, from zero to one.", ge=0, le=1
     )
-    cash_to_keep: NonNegativeMoney = spec_field(
-        0.0, description="Minimum spendable bank balance to keep after the prepayment.", unit="USD", allow_inf_nan=False
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable cash to retain in addition to the tax holdback.", unit="USD", allow_inf_nan=False
     )
 
     @model_validator(mode="after")

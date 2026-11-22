@@ -177,7 +177,7 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "mortgage_paid_at_maturity": "A mortgage was paid off (amount: principal plus final interest; "
     "details: date, principal, interest_due, cash_floor, shortfall_debt, bridge_draw when a bridge is supplied).",
     "mortgage_prepayment": "Month-end cash was applied to mortgage principal (amount: principal paid; "
-    "details: date, cash_before, cash_to_keep, cash_fraction, requested, limit_remaining when capped).",
+    "details: date, cash_before, cash_floor, tax_holdback, cash_fraction, requested, limit_remaining when capped).",
 }
 
 _DETAIL_KINDS = frozenset(

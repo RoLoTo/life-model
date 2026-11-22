@@ -1393,7 +1393,7 @@ class TaxUnit:
     def expected_unpaid_tax(self) -> float:
         """The tax this year's income so far still owes beyond what has been paid toward it: the projected
         year's tax (income tax, payroll and state taxes) times the share of the year elapsed, less the year's
-        withholding and estimated payments so far. Contributions funded from the bank hold this much back
+        withholding and estimated payments so far. Optional payments funded from the bank hold this much back
         (see :mod:`life_model.policies`)."""
         from ..tax.payments import payments_of
 

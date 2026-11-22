@@ -80,7 +80,7 @@ class TestMortgagePrepaymentCaps(unittest.TestCase):
                 }
                 if new_terms is not None:
                     renewal["prepayment_privilege"] = new_terms
-                inputs["events"] = [prepay(3, 31), renewal, prepay(8, 31, cash_to_keep=69000)]
+                inputs["events"] = [prepay(3, 31), renewal, prepay(8, 31, cash_floor=69000)]
                 built = build_household(spec_of(inputs), config=fixture_config(), collect="month")
                 for _ in range(7):
                     built.model.step()

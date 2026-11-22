@@ -1421,7 +1421,7 @@ Pay the live principal and quoted final interest on the contractual maturity dat
 
 ## MortgagePrepaymentEvent
 
-Apply surplus spendable bank cash to mortgage principal after the month's bills.
+Apply surplus bank cash to mortgage principal after bills, reserving cash for taxes.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1431,8 +1431,8 @@ Apply surplus spendable bank cash to mortgage principal after the month's bills.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"prepay_mortgage"` |  | **required** |  |  |
 | `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
-| `cash_fraction` | number |  | `1.0` |  | Fraction of spendable cash above the floor to pay, between zero and one. |
-| `cash_to_keep` | number | USD | `0.0` |  | Minimum spendable bank balance to keep after the prepayment. |
+| `cash_fraction` | number |  | `1.0` |  | Fraction of cash above the tax holdback and floor to pay, from zero to one. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable cash to retain in addition to the tax holdback. |
 
 ## HelocDrawEvent
 

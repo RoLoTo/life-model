@@ -65,14 +65,19 @@ bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amoun
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
 Set the payoff's optional `bridge` to a borrower-owned `bridge_line` id to cover that shortfall
 automatically. The draw is the smallest whole-cent amount that funds the payoff and preserves
-`cash_to_keep`. When available headroom is insufficient, the reported shortfall is the additional
+`cash_floor`. When available headroom is insufficient, the reported shortfall is the additional
 cash needed beyond that headroom. The mortgage and bridge stay as they were at the start of the event.
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
-to principal after scheduled bills. Set `cash_to_keep` to retain a cash floor and
-`cash_fraction` to use only a portion of the surplus (for example, `0.5` for half).
-The regular payment stays the same. December tax settlement follows the prepayment stage.
-Include any cash needed for that settlement in the December floor.
+to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
+contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
+year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
+surplus (for example, `0.5` for half). Scheduled payments continue at the contracted amount.
+Enter only prepayments permitted under the mortgage contract.
+
+In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
+sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's
+floor. Tax-advantaged sweeps run at the start of the following year.
 
 For a contractual annual cap, set the mortgage's `prepayment_privilege` with the first eligible
 `anniversary` and `annual_limit_pct`. The cap resets on that anniversary each year. Set
