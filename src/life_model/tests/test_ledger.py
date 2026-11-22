@@ -12,6 +12,7 @@ policies, underwater sales) where money must not appear or vanish without a ledg
 """
 
 import unittest
+from collections import deque
 from pathlib import Path
 
 from ..account.bank import BankAccount
@@ -32,6 +33,7 @@ from ..lifeevents import LifeEvent, LifeEvents
 from ..model import LifeModel
 from ..people.family import Family
 from ..people.person import MortalityMode, Person, Spending
+from ..people.tax_unit import _BillLine
 from ..work.job import Job, Salary
 from .scenarios import (
     EARNINGS_HISTORY,
@@ -62,6 +64,26 @@ class TestLedgerEntries(unittest.TestCase):
             model.ledger.post(5, FlowKind.OTHER, source="a", sink="b")
         self.assertIsNone(model.ledger.post(0, FlowKind.OTHER, to_account="Cash:1"))
         self.assertEqual(len(model.ledger), 0)
+
+    def test_bill_split_folds_roundoff_on_either_side_of_a_bank_boundary(self):
+        for amount, available in ((0.1 + 0.2, 0.3), (0.3, 0.1 + 0.2)):
+            with self.subTest(amount=amount, available=available):
+                ledger = LifeModel(start_year=2026, end_year=2026).ledger
+                funding = deque([("Bank:1", available), ("Bank:2", 4.0)])
+                _BillLine(amount, FlowKind.SPENDING, None, "first bill").post(ledger, "Payer:3", funding=funding)
+                _BillLine(4.0, FlowKind.SPENDING, None, "second bill").post(ledger, "Payer:3", funding=funding)
+                self.assertEqual(
+                    [(entry.cause, entry.from_account, entry.amount) for entry in ledger.entries],
+                    [("first bill", "Bank:1", amount), ("second bill", "Bank:2", 4.0)],
+                )
+                self.assertFalse(funding)
+
+    def test_bill_split_keeps_a_cent_of_unfunded_spending(self):
+        ledger = LifeModel(start_year=2026, end_year=2026).ledger
+        funding = deque([("Bank:1", 1.0)])
+        _BillLine(1.01, FlowKind.SPENDING, None, "bill").post(ledger, "Payer:2", funding=funding)
+        self.assertEqual([entry.from_account for entry in ledger.entries], ["Bank:1", "Payer:2"])
+        self.assertAlmostEqual(ledger.entries[-1].amount, 0.01)
 
     def test_paycheck_tax_and_spending_are_posted(self):
         model = LifeModel(start_year=2026, end_year=2026)

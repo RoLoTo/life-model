@@ -1189,7 +1189,7 @@ class TaxUnit:
                     remaining = self._pay_from_banks(remaining, paid_from=paid_from)
             shortfall = round_money(max(0.0, remaining))
             payer = self._payer_account()
-            # A single payer keeps the original one-entry-per-bill representation.
+            # With one funding account, each bill stays one entry.
             funding = deque(paid_from.items()) if any(account is not payer for account in paid_from) else None
             for line in bill_lines:
                 line.post(model.ledger, payer, funding=funding)
@@ -1896,14 +1896,15 @@ class _BillLine:
         remaining = self.amount
         while remaining > 0 and funding:
             account, available = funding[0]
-            paid = min(remaining, available)
+            # Fold differences smaller than half a cent into the current split.
+            paid = remaining if remaining - available < 0.005 else available
             self._post_cash(ledger, account, paid)
             remaining -= paid
-            if paid == available:
+            if available - paid < 0.005:
                 funding.popleft()
             else:
                 funding[0] = (account, available - paid)
-        if remaining > 0:
+        if remaining >= 0.005:
             # The unfunded portion uses the account paired with the new debt.
             self._post_cash(ledger, payer, remaining)
 
