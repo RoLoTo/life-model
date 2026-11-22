@@ -5,7 +5,7 @@
 
 """Compile spec ``events[]`` (data) into :class:`~life_model.lifeevents.LifeEvent` callables.
 
-**Timing.** Every ``at`` resolves to a calendar year and month:
+**Timing.** Every ``at`` resolves to a calendar year and month, with an optional day:
 
 * ``{year: Y}`` is ``Y``;
 * ``{age: A}`` is ``person.get_year_at_age(A)``, the engine's own age arithmetic (the year the
@@ -16,12 +16,15 @@
 
 ``at.month`` sets the month explicitly; otherwise a year-dated event fires in the first simulated
 month of its year (January, or ``meta.start``'s month in the first year).
+``at.day`` requires an explicit year and month. A relative event in its anchor's year and month
+inherits its day, so it can follow an anchor that fires after day 1.
 
 **Firing.** Compiled events are ordinary ``LifeEvent`` objects owned by one ``LifeEvents`` agent
 (built last). They fire in the engine's ``events`` stage of their month, after the month's income
 and before its bills are paid, so an event's cash, salary, state and marriage effects apply from
-the month it is dated (and to that year's return). Events in the same month fire anchors first,
-then in canonical order. The builder never creates a past-dated ``LifeEvent`` (see
+the month it is dated (and to that year's return). Events in the same month fire by day (default
+day 1), then anchors before their dependents, then in canonical order.
+The builder never creates a past-dated ``LifeEvent`` (see
 :mod:`life_model.spec.builder`).
 
 Two actions are compiled into constructor inputs instead of ``LifeEvent`` callables, because the
@@ -89,6 +92,17 @@ class EventTiming:
     def month_of(self, event, stack: tuple = ()) -> int | None:
         """The month a spec event fires in (None: the first simulated month of its year)."""
         return self.resolve_month(event.at, event.person, stack)
+
+    def day_of(self, event) -> int | None:
+        """An explicit day or the day of a relative anchor in the same year and month."""
+        at = event.at
+        if at.day is not None:
+            return at.day
+        if at.relative is not None and at.relative.years == 0:
+            anchor = self.by_id[at.relative.after]
+            if self.month_of(anchor) == self.month_of(event):
+                return self.day_of(anchor)
+        return None
 
     def resolve_month(self, at: s.At, default_person: str | None, stack: tuple = ()) -> int | None:
         """``at.month``, else the birth month for ``age`` timing, else the anchor's month."""
@@ -160,17 +174,21 @@ def compile_events(builder: "_Builder", timing: EventTiming) -> list[LifeEvent]:
             head, spouse = (builder.person(pid) for pid in marriage.spouses)
             name = f"{head.name} and {spouse.name} marry"
             le = _life_event(marriage.year, name, marriage, builder.marry, head, spouse, marriage.filing_status)
-            compiled.append(((marriage.year, 0, 0, -1, index), le))
+            compiled.append(((marriage.year, 0, 1, 0, -1, index), le))
 
     for index, event in enumerate(spec.events):
         if event.action in BUILD_TIME_ACTIONS:
             continue
         year = timing.year_of(event)
         month = timing.month_of(event)
+        day = timing.day_of(event)
         depth = timing.depth(event)
         for offset, life_event in enumerate(_compile_one(builder, timing, event, year)):
-            life_event.month = getattr(life_event, "fixed_month", None) or month
-            compiled.append(((life_event.year, life_event.month or 0, depth, index, offset), life_event))
+            fixed_month = getattr(life_event, "fixed_month", None)
+            life_event._set_date(fixed_month or month, day if fixed_month in (None, month) else None)
+            compiled.append(
+                ((life_event.year, life_event.month or 0, life_event.day or 1, depth, index, offset), life_event)
+            )
 
     compiled.sort(key=lambda pair: pair[0])
     return [life_event for _, life_event in compiled]

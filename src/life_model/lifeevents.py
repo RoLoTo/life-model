@@ -16,10 +16,14 @@ change applies from that month (and to the year's return).
 An event can opt into a different stage with ``stage=``: ``"pre_step"`` fires before the month's
 income arrives, ``"post_step"`` after the month's bills have been paid (so its effect starts next
 month).
+
+Events in the same schedule and stage fire by calendar day. An unspecified day sorts as day 1.
+Events on the same day keep their scheduled order.
 """
 
 import warnings
 from collections.abc import Callable
+from datetime import date
 from typing import ClassVar
 
 from .model import Event, EventKind, LifeModelAgent
@@ -31,8 +35,8 @@ LIFE_EVENT_STAGES = ("pre_step", "events", "post_step")
 class LifeEventRecord(Event):
     """Event-log entry written when a scheduled life event fires.
 
-    It carries the event's name, the year (and month, when one was given) it was scheduled for and the
-    stage it fired in, alongside the usual message.
+    It carries the event's name, scheduled year and month, and firing stage. When a day was given,
+    the exported event details include ``scheduled_day``.
     """
 
     def __init__(self, life_event: "LifeEvent", stage: str):
@@ -40,6 +44,8 @@ class LifeEventRecord(Event):
         self.name = life_event.name
         self.scheduled_year = life_event.year
         self.scheduled_month = life_event.month
+        if life_event.day is not None:
+            self.details["scheduled_day"] = life_event.day
         self.stage = stage
 
 
@@ -115,7 +121,7 @@ class LifeEvents(LifeModelAgent):
         if not due:
             return
         self.life_events = [x for x in self.life_events if x not in due]
-        for life_event in due:
+        for life_event in sorted(due, key=lambda event: event.day or 1):
             self._fire_one(life_event, stage)
 
     def pre_step(self):
@@ -130,7 +136,14 @@ class LifeEvents(LifeModelAgent):
 
 class LifeEvent:
     def __init__(
-        self, year: int, name: str, event: Callable, *event_args, stage: str = "events", month: int | None = None
+        self,
+        year: int,
+        name: str,
+        event: Callable,
+        *event_args,
+        stage: str = "events",
+        month: int | None = None,
+        day: int | None = None,
     ):
         """Life Event.
 
@@ -145,17 +158,29 @@ class LifeEvent:
             month (int, optional): Month (1-12) the event fires in. Defaults to the first simulated
                 month of ``year`` (January, or the start month of a part-year first year).
                 Keyword-only.
+            day (int, optional): Calendar day within an explicit month. Determines firing order
+                within the same stage. Defaults to day 1 for ordering. Keyword-only.
         """
         if stage not in LIFE_EVENT_STAGES:
             raise ValueError(f"Unknown life event stage {stage!r}; expected one of {LIFE_EVENT_STAGES}")
-        if month is not None and not 1 <= int(month) <= 12:
-            raise ValueError(f"Life event month must be 1-12, got {month}")
-        self.month = None if month is None else int(month)
         self.year = year
+        self._set_date(month, day)
         self.name = name
         self.event = event
         self.event_args = event_args
         self.stage = stage
+
+    def _set_date(self, month: int | None, day: int | None) -> None:
+        """Validate the date supplied directly or resolved by the spec compiler."""
+        month = None if month is None else int(month)
+        if month is not None and not 1 <= month <= 12:
+            raise ValueError(f"Life event month must be 1-12, got {month}")
+        if day is not None:
+            if month is None:
+                raise ValueError("A life event day requires an explicit month")
+            date(self.year, month, day)
+        self.month = month
+        self.day = day
 
     def eval_event(self, year, *, model=None) -> bool:
         """Run the event if it is scheduled for ``year`` (regardless of stage). Returns whether it ran.

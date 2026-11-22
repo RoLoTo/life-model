@@ -1226,6 +1226,8 @@ class _SpecChecker:
             self.check_person_ref(event.person, f"{path}.person")
             if event.at.person is not None:
                 self.check_person_ref(event.at.person, f"{path}.at.person")
+            if event.at.day is not None and isinstance(event, s.ClaimSocialSecurityEvent | s.DieEvent):
+                self.error(f"{path}.at.day", f"'{event.action}' uses an age threshold and cannot specify a day.")
             rel = event.at.relative
             if rel is not None:
                 if rel.after not in by_id:
@@ -1310,11 +1312,16 @@ class _SpecChecker:
                         self.error(f"{path}.account", f"recurring contributions to a {kind} account are not supported.")
                     if kind == "401k" and target[2].job is None and isinstance(event, s.ChangeContributionEvent):
                         self.error(f"{path}.account", "a 401k without a job takes no contributions.")
-            if isinstance(event, s.ConvertToRothEvent) and event.person in self.people:
-                self.check_conversion_refs(
-                    self._person_accounts(self.people[event.person]), event.source, event.target, path
-                )
+            if isinstance(event, s.ConvertToRothEvent):
+                if event.at.day is not None and event.fill_bracket_pct is not None and event.at.month != 12:
+                    self.error(f"{path}.at.day", "A bracket-fill conversion with a day must be scheduled in December.")
+                if event.person in self.people:
+                    self.check_conversion_refs(
+                        self._person_accounts(self.people[event.person]), event.source, event.target, path
+                    )
             if isinstance(event, s.RecurringExpenseEvent) and event.until is not None:
+                if event.until.day is not None:
+                    self.error(f"{path}.until.day", "'until' selects the last year of the recurring expense.")
                 last = self.resolve(event.until, event.person, by_id)
                 if year is not None and last is not None and last < year:
                     self.error(f"{path}.until", f"'until' ({last}) is before 'at' ({year}).")

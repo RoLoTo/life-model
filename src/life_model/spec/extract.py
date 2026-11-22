@@ -1112,12 +1112,13 @@ class _Extractor:
         """The spec entries behind the not-yet-fired ``LifeEvent`` objects.
 
         Before the first step they are returned as written. Afterwards an event is re-timed to its
-        remaining years (``at: {year}``, and ``until`` for a recurring expense), because its anchors
-        or earlier years may already have fired.
+        remaining dates (and ``until`` for a recurring expense), because its anchors or earlier years
+        may already have fired. Keep a dated relative event tied to its anchor if both are pending
+        on the same day, so they still fire in that order.
         """
         from ..lifeevents import LifeEvents
 
-        years: dict[int, list[tuple[int, int | None]]] = {}
+        dates: dict[int, list[tuple[int, int | None, int | None]]] = {}
         sources: list = []
         for agent in self.model.agents:
             if isinstance(agent, LifeEvents):
@@ -1125,22 +1126,31 @@ class _Extractor:
                     source = getattr(life_event, "spec_source", None)
                     if source is None:
                         continue
-                    if id(source) not in years:
-                        years[id(source)] = []
+                    if id(source) not in dates:
+                        dates[id(source)] = []
                         sources.append(source)
-                    years[id(source)].append((life_event.year, life_event.month))
+                    dates[id(source)].append((life_event.year, life_event.month, life_event.day))
         if not self.stepped:
             return sources
+        first_pending = {
+            key: min(pending, key=lambda when: (when[0], when[1] or 0, when[2] or 1)) for key, pending in dates.items()
+        }
+        by_spec_id = {source.id: source for source in sources if isinstance(source, s.EventBase) and source.id}
         retimed = []
         for source in sources:
-            pending = years[id(source)]
+            first_year, first_month, first_day = first_pending[id(source)]
             if isinstance(source, s.Marriage):
-                retimed.append(source.model_copy(update={"year": min(pending)[0]}))
+                retimed.append(source.model_copy(update={"year": first_year}))
                 continue
-            first_year, first_month = min(pending, key=lambda when: (when[0], when[1] or 0))
-            update: dict[str, Any] = {"at": s.At(year=first_year, month=first_month)}
+            at = s.At(year=first_year, month=first_month, day=first_day)
+            relative = source.at.relative
+            if first_day is not None and relative is not None:
+                anchor = by_spec_id.get(relative.after)
+                if anchor is not None and first_pending[id(anchor)] == (first_year, first_month, first_day):
+                    at = source.at
+            update: dict[str, Any] = {"at": at}
             if isinstance(source, s.RecurringExpenseEvent):
-                update["until"] = s.At(year=max(year for year, _ in pending))
+                update["until"] = s.At(year=max(when[0] for when in dates[id(source)]))
             retimed.append(source.model_copy(update=update))
         return retimed
 
