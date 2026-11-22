@@ -27,6 +27,7 @@ limit (the child's own return is not modeled).
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ValidationError
@@ -791,12 +792,18 @@ class _SpecChecker:
                         "federal_unsubsidized or plus), or use repayment_plan: standard.",
                         "rap_needs_federal_loan",
                     )
-                if isinstance(debt, s.HomeEquityLine) and debt.home not in home_ids:
+                if isinstance(debt, s.HomeEquityLine | s.BridgeLine) and debt.home not in home_ids:
                     self.error(
                         f"{path}.debts[{j}].home",
                         f"unknown home {debt.home!r} (must be one of this person's homes with an id)",
                         code="unknown_reference",
                     )
+                if (
+                    isinstance(debt, s.BridgeLine)
+                    and debt.accrued_through is not None
+                    and debt.accrued_through > date(self.start, self.start_month, 1)
+                ):
+                    self.error(f"{path}.debts[{j}].accrued_through", "Opening accrual cannot extend past the start.")
             for j, policy in enumerate(p.insurance):
                 if isinstance(policy, s.LifeInsurance) and policy.beneficiary is not None:
                     self.check_person_ref(policy.beneficiary, f"{path}.insurance[{j}].beneficiary")
@@ -1326,6 +1333,10 @@ class _SpecChecker:
                 target = item_ids.get(event.bank)
                 if target is None or target[0] != event.person or not isinstance(target[2], s.BankAccount):
                     self.error(f"{path}.bank", "Funding bank must be owned by the person setting aside cash.")
+            if isinstance(event, s.BridgeEvent):
+                bridge = item_ids.get(event.bridge)
+                if bridge is None or bridge[0] != event.person or not isinstance(bridge[2], s.BridgeLine):
+                    self.error(f"{path}.bridge", "must be an approved bridge line owned by the borrower")
             if isinstance(event, s.ContributeEvent):
                 target = item_ids.get(event.account)
                 if target is None or target[1] != "accounts":

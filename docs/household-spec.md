@@ -35,7 +35,7 @@ error: put what already happened into the starting state (for example a marriage
 
 ## Event actions
 
-`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `reserve_cash`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `prepay_mortgage`, `heloc_draw`, `disability`.
+`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `reserve_cash`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `prepay_mortgage`, `heloc_draw`, `draw_bridge`, `repay_bridge`, `disability`.
 
 ## HouseholdSpec
 
@@ -49,7 +49,7 @@ A complete household: metadata, optional economy overrides, people, relationship
 | `people` | list[[Person](#person)] |  | **required** |  | The people in the household (one family). |
 | `relationships` | [Relationships](#relationships) |  | {} |  | Marriages. |
 | `withdrawal_order` | list[`"bank"` \\| `"fixed_income"` \\| `"brokerage"` \\| `"roth_basis"` \\| `"pretax"` \\| `"roth_earnings"` \\| `"reserve"`] (optional) |  | — | `Family.withdrawal_order` | Household payment waterfall: the order sources are drawn to pay bills and taxes, across every member. Each source exactly once, starting with 'bank'. Defaults to bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve (fixed_income and reserve may be left out: they then take those places). |
-| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ReserveCashEvent](#reservecashevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [MortgagePrepaymentEvent](#mortgageprepaymentevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
+| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ReserveCashEvent](#reservecashevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [MortgagePrepaymentEvent](#mortgageprepaymentevent), [HelocDrawEvent](#helocdrawevent), [DrawBridgeEvent](#drawbridgeevent), [RepayBridgeEvent](#repaybridgeevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
 | `actuals` | map[integer → [ActualRecords](#actualrecords)] (optional) |  | — |  | What the household's real documents say, by tax year (filed 1040 lines, W-2s, 1099s, statement balances): read by 'life-model reconcile' and the backtest, ignored by the builder. Keep real documents in my-models/ (git-ignored). |
 
 ## Meta
@@ -136,7 +136,7 @@ Builds: `Person`.
 | `spending` | [Spending](#spending) (optional) |  | — |  | This person's living spending. Spending is per person and adds across the household: the household's budget is the sum of every person's amount_annual, so give the whole household budget on one spouse (and leave the other spouse's spending out, or 0) or split it between them, never the full budget on each. Required for a person without a spouse (relationships.marriages) whose spending holds the budget; a spouse who leaves it out spends nothing of their own. |
 | `jobs` | list[[Job](#job)] |  | [] |  | Jobs (W-2). |
 | `accounts` | list[one of: [BankAccount](#bankaccount), [CashReserveAccount](#cashreserveaccount), [FixedIncomeAccount](#fixedincomeaccount), [BrokerageAccount](#brokerageaccount), [Job401k](#job401k), [TraditionalIRA](#traditionalira), [RothIRA](#rothira), [HealthSavingsAccount](#healthsavingsaccount), [Plan529](#plan529), [InheritedPretaxAccount](#inheritedpretaxaccount), [Pension](#pension), [Annuity](#annuity), [DonorAdvisedFund](#donoradvisedfund), [Trust](#trust)] |  | [] |  | Accounts, discriminated by 'kind'. |
-| `debts` | list[one of: [CarLoan](#carloan), [StudentLoan](#studentloan), [CreditCard](#creditcard), [HomeEquityLine](#homeequityline)] |  | [] |  | Debts (car, student, credit_card, heloc). |
+| `debts` | list[one of: [CarLoan](#carloan), [StudentLoan](#studentloan), [CreditCard](#creditcard), [HomeEquityLine](#homeequityline), [BridgeLine](#bridgeline)] |  | [] |  | Debts (car, student, credit_card, heloc, bridge_line). |
 | `housing` | list[one of: [Home](#home), [Rental](#rental)] |  | [] |  | Homes and rentals. |
 | `insurance` | list[one of: [LifeInsurance](#lifeinsurance), [GeneralInsurance](#generalinsurance)] |  | [] |  | Insurance policies. |
 | `social_security` | [SocialSecurity](#socialsecurity) (optional) |  | — |  | Social Security benefits. |
@@ -699,6 +699,24 @@ Builds: `HomeEquityLine`.
 | `improvement_balance` | number | USD | `0.0` | `HomeEquityLine.improvement_balance` | Part of the balance that paid for improvements to the home. |
 | `payment_strategy` | `"interest_only"` \\| `"minimum"` \\| `"full_balance"` \\| `"fixed"` |  | `"interest_only"` | `HomeEquityLine.payment_strategy` | How the balance is paid down each month. |
 | `payment_monthly` | number | USD/month | `0.0` | `HomeEquityLine.fixed_payment` | Monthly payment for the 'fixed' strategy. |
+
+## BridgeLine
+
+Approved credit secured by the borrower's home with simple actual-days/365 interest.
+
+Builds: `DatedBridgeLine`.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `kind` | `"bridge_line"` |  | **required** |  |  |
+| `id` | string (optional) |  | — |  | Optional identifier for this debt, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
+| `home` | string |  | **required** | `DatedBridgeLine.home` | Id of the home securing the line. |
+| `name` | string (optional) |  | — |  | Display name. |
+| `credit_limit` | number | USD | **required** |  | Maximum drawn principal. |
+| `rate_pct` | number | percent | **required** |  | Annual simple interest rate. |
+| `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal. |
+| `accrued_interest` | Decimal | USD | `0` |  | Opening unpaid interest at full accrual precision. |
+| `accrued_through` | date (optional) |  | — |  | Date through which opening interest was calculated. |
 
 ## Home
 
@@ -1420,6 +1438,34 @@ Draw on a home equity line: to the bank, or spent on improvements to the home se
 | `heloc` | string |  | **required** |  | Id of the home equity line (a 'heloc' debt). |
 | `amount` | number | USD | **required** |  | Amount drawn (up to the available credit). |
 | `for_improvements` | boolean |  | `False` |  | Spent on improvements (cost basis; deductible interest) instead of paid to the bank. |
+
+## DrawBridgeEvent
+
+Deposit a dated draw from approved secured credit into bank cash.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
+| `at` | [At](#at) |  | **required** |  | When the event happens: {year}, {age} or {relative: {after, years}}. |
+| `person` | string |  | **required** |  | Person the event applies to. |
+| `name` | string (optional) |  | — |  | Description shown in the event list. |
+| `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
+| `action` | `"draw_bridge"` |  | **required** |  |  |
+| `amount` | number | USD | **required** |  | Required draw. |
+
+## RepayBridgeEvent
+
+Repay the bridge's drawn principal and accrued interest from spendable bank cash.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
+| `at` | [At](#at) |  | **required** |  | When the event happens: {year}, {age} or {relative: {after, years}}. |
+| `person` | string |  | **required** |  | Person the event applies to. |
+| `name` | string (optional) |  | — |  | Description shown in the event list. |
+| `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
+| `action` | `"repay_bridge"` |  | **required** |  |  |
+| `cash_to_keep` | number | USD | `0.0` |  | Spendable cash floor after repayment. |
 
 ## DisabilityEvent
 

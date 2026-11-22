@@ -1802,7 +1802,42 @@ class HomeEquityLine(SpecModel):
         return self
 
 
-Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine, Field(discriminator="kind")]
+BridgeMoney = Annotated[float, Field(ge=0, multiple_of=0.01, allow_inf_nan=False)]
+
+
+class BridgeLine(SpecModel):
+    """Approved credit secured by the borrower's home with simple actual-days/365 interest."""
+
+    CORE_CLASS = "DatedBridgeLine"
+
+    kind: Literal["bridge_line"]
+    id: Identifier | None = _id_field("debt")
+    home: Identifier = spec_field(description="Id of the home securing the line.", core="DatedBridgeLine.home")
+    name: str | None = spec_field(None, description="Display name.")
+    credit_limit: BridgeMoney = spec_field(description="Maximum drawn principal.", unit="USD")
+    rate_pct: NonNegativePercent = spec_field(description="Annual simple interest rate.", unit="percent")
+    drawn_principal: BridgeMoney = spec_field(0.0, description="Opening drawn principal.", unit="USD")
+    accrued_interest: Decimal = spec_field(
+        Decimal(0),
+        description="Opening unpaid interest at full accrual precision.",
+        unit="USD",
+        ge=0,
+        allow_inf_nan=False,
+    )
+    accrued_through: date | None = spec_field(None, description="Date through which opening interest was calculated.")
+
+    @model_validator(mode="after")
+    def _opening(self) -> "BridgeLine":
+        if self.drawn_principal > self.credit_limit:
+            raise ValueError("Opening bridge principal exceeds the approved limit")
+        if (self.drawn_principal > 0) != (self.accrued_through is not None):
+            raise ValueError("Supply an accrued-through date exactly when there is opening principal")
+        if self.accrued_interest and not self.drawn_principal:
+            raise ValueError("Opening bridge interest requires drawn principal")
+        return self
+
+
+Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine | BridgeLine, Field(discriminator="kind")]
 
 
 # --- Housing -------------------------------------------------------------------------------------
@@ -2757,7 +2792,9 @@ class Person(SpecModel):
     )
     jobs: list[Job] = spec_field(default_factory=list, description="Jobs (W-2).")
     accounts: list[Account] = spec_field(default_factory=list, description="Accounts, discriminated by 'kind'.")
-    debts: list[Debt] = spec_field(default_factory=list, description="Debts (car, student, credit_card, heloc).")
+    debts: list[Debt] = spec_field(
+        default_factory=list, description="Debts (car, student, credit_card, heloc, bridge_line)."
+    )
     housing: list[Housing] = spec_field(default_factory=list, description="Homes and rentals.")
     insurance: list[Insurance] = spec_field(default_factory=list, description="Insurance policies.")
     social_security: SocialSecurity | None = spec_field(None, description="Social Security benefits.")
@@ -3176,6 +3213,30 @@ class HelocDrawEvent(EventBase):
     )
 
 
+class BridgeEvent(EventBase):
+    bridge: Identifier = spec_field(description="Id of the borrower's approved bridge line.")
+
+    @model_validator(mode="after")
+    def _full_date(self) -> "BridgeEvent":
+        if self.at.day is None:
+            raise ValueError("A bridge transaction requires a full calendar date")
+        return self
+
+
+class DrawBridgeEvent(BridgeEvent):
+    """Deposit a dated draw from approved secured credit into bank cash."""
+
+    action: Literal["draw_bridge"]
+    amount: BridgeMoney = spec_field(description="Required draw.", unit="USD", gt=0)
+
+
+class RepayBridgeEvent(BridgeEvent):
+    """Repay the bridge's drawn principal and accrued interest from spendable bank cash."""
+
+    action: Literal["repay_bridge"]
+    cash_to_keep: BridgeMoney = spec_field(0.0, description="Spendable cash floor after repayment.", unit="USD")
+
+
 class DisabilityEvent(EventBase):
     """The person becomes disabled: every job stops and each disability policy with a benefit_pct opens a
     claim (benefits from the end of its elimination period to its benefit end age)."""
@@ -3219,6 +3280,8 @@ Event = Annotated[
     | MortgageMaturityEvent
     | MortgagePrepaymentEvent
     | HelocDrawEvent
+    | DrawBridgeEvent
+    | RepayBridgeEvent
     | DisabilityEvent,
     Field(discriminator="action"),
 ]
@@ -3248,6 +3311,8 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "pay_mortgage_at_maturity",
     "prepay_mortgage",
     "heloc_draw",
+    "draw_bridge",
+    "repay_bridge",
     "disability",
 )
 
