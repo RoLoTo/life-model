@@ -1290,7 +1290,7 @@ Refinance a mortgage (``debt`` is the home's id) or a car or student loan: a new
 
 ## MortgageMaturityEvent
 
-Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date.
+Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller. The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1301,7 +1301,7 @@ Pay a mortgage's outstanding principal and quoted final interest from bank cash 
 | `action` | `"pay_mortgage_at_maturity"` |  | **required** |  |  |
 | `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
 | `interest_due` | number | USD | **required** |  | Lender's quoted interest due at payoff. |
-| `cash_to_keep` | number | USD | `0.0` |  | Minimum spendable bank cash to keep after payoff. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable bank cash protected from payoff withdrawals. |
 
 ## HelocDrawEvent
 

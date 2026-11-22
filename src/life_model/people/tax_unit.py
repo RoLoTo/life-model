@@ -1062,17 +1062,18 @@ class TaxUnit:
 
     def _carried_debt_lines(self, interest_by_member: dict[int, float]) -> "tuple[list[_BillLine], float]":
         """Unpaid bills carried as debt are repaid with this month's bills, after a month of interest
-        (credit-card-like by default): unpaid bills are a real liability, not a free loan. Zeroes the
-        members' ``debt`` (whatever can't be paid is borrowed again)."""
+        (credit-card-like by default): unpaid bills are a real liability, not a free loan. Removes the
+        amount now due from each member's debt (whatever can't be paid is borrowed again)."""
         rate = self.config.debt.effective_unpaid_balance_interest_rate / 100 / 12
         lines: list[_BillLine] = []
         total = 0.0
         for member in self.members:
-            if not member.debt:
+            due = member.debt_due_this_month
+            if not due:
                 continue
-            interest = member.debt * rate
+            interest = due * rate
             interest_by_member[member.unique_id] = interest_by_member.get(member.unique_id, 0.0) + interest
-            carried = member.debt + interest
+            carried = due + interest
             total += carried
             lines.append(
                 _BillLine(carried, FlowKind.DEBT_SERVICE, member, "repay unpaid bills", to_account=debt_label(member))
@@ -1087,7 +1088,7 @@ class TaxUnit:
                     sink="interest on unpaid bills",
                 )
             )
-            member.debt = 0
+            member.debt = snap_money(member.debt - due)
         return lines, total
 
     def _spending_lines(self, spending_by_member: dict[int, float]) -> "tuple[list[_BillLine], float]":

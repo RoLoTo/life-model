@@ -10,7 +10,7 @@ from ..account.job401k import Job401kAccount
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind, cash_label, debt_label
 from ..limits import federal_retirement_age
-from ..model import Event, EventKind, LifeModel, LifeModelAgent
+from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
 from ..services.debt_service import DebtService
 from ..services.payment_service import PaymentService
 from ..services.tax_calculation_service import TaxCalculationService
@@ -180,7 +180,8 @@ class Person(LifeModelAgent):
         self._widowed_year: int | None = None
         # A spouse who died this year: their income so far this year is on this person's joint return.
         self.deceased_spouse_this_year: Person | None = None
-        self.debt = 0
+        self.debt = 0.0
+        self._deferred_debt: tuple[int, float] | None = None
         # Per-person income ledger: separates FICA wages from ordinary taxable income so that
         # payroll tax and income tax each see the correct base (see tax/income.py).
         self.income = IncomeLedger(clock=self._income_month)
@@ -870,6 +871,16 @@ class Person(LifeModelAgent):
         self.model.ledger.name_label(label, f"{self.name}'s cash")
         return label
 
+    @property
+    def debt_due_this_month(self) -> float:
+        """Unpaid bills eligible for repayment in the current month's bills stage."""
+        deferred = self._deferred_debt
+        return (
+            max(0.0, snap_money(self.debt - deferred[1]))
+            if deferred and deferred[0] == self.model.period
+            else self.debt
+        )
+
     def add_debt(
         self,
         amount: float,
@@ -878,11 +889,15 @@ class Person(LifeModelAgent):
         kind: "FlowKind | str" = FlowKind.BORROW,
         to_account=None,
         sink: str | None = None,
+        defer_until_next_month: bool = False,
     ) -> None:
         """Carry ``amount`` of unpaid bills as debt (``self.debt``), posting it: money borrowed into
-        ``to_account`` (a transfer) or an outflow to ``sink`` financed by the debt."""
+        ``to_account`` (a transfer) or an outflow to ``sink`` financed by the debt. An event before the
+        bills stage can defer repayment of the new amount until next month."""
         if amount <= 0:
             return
+        if defer_until_next_month:
+            self._deferred_debt = (self.model.period, snap_money(self.debt - self.debt_due_this_month + amount))
         self.debt += amount
         self.model.event_log.add(
             Event(EventKind.SHORTFALL_DEBT, person=self, amount=amount, cause=cause or "unpaid bills")

@@ -2971,15 +2971,18 @@ class RefinanceEvent(EventBase):
 
 
 class MortgageMaturityEvent(EventBase):
-    """Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date."""
+    """Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller.
+
+    The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
+    """
 
     action: Literal["pay_mortgage_at_maturity"]
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     interest_due: NonNegativeMoney = spec_field(
         description="Lender's quoted interest due at payoff.", unit="USD", allow_inf_nan=False
     )
-    cash_to_keep: NonNegativeMoney = spec_field(
-        0.0, description="Minimum spendable bank cash to keep after payoff.", unit="USD", allow_inf_nan=False
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
     )
 
     @model_validator(mode="after")
