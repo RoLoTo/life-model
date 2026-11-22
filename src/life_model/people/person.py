@@ -3,6 +3,7 @@
 # Use of this source code is governed by an MIT license:
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -80,6 +81,7 @@ class Person(LifeModelAgent):
         residency: "Sequence[tuple[str, str]] | None" = None,
         widowed_year: int | None = None,
         estimated_payments: "EstimatedPayments | None" = None,
+        unpaid_bills_debt: float = 0.0,
     ):
         """Person
 
@@ -116,7 +118,10 @@ class Person(LifeModelAgent):
                 lives with them (IRC §2(a)).
             estimated_payments (optional): Quarterly federal estimated tax payments
                 (:class:`~life_model.tax.payments.EstimatedPayments`; keyword-only).
+            unpaid_bills_debt (float, optional): Opening balance of unpaid bills due in the first month.
         """
+        if not math.isfinite(unpaid_bills_debt) or unpaid_bills_debt < 0:
+            raise ValueError("Opening unpaid-bills debt must be finite and non-negative")
         # A state without a tax pack is refused before the person joins the model.
         for code in [state, *(entry[1] for entry in residency or ())]:
             if code is not None:
@@ -180,7 +185,9 @@ class Person(LifeModelAgent):
         self._widowed_year: int | None = None
         # A spouse who died this year: their income so far this year is on this person's joint return.
         self.deceased_spouse_this_year: Person | None = None
-        self.debt = 0.0
+        self.debt = unpaid_bills_debt
+        if self.debt:
+            self.model.ledger.name_label(debt_label(self), f"{self.name}'s unpaid-bills debt")
         self._deferred_debt: tuple[int, float] | None = None
         # Per-person income ledger: separates FICA wages from ordinary taxable income so that
         # payroll tax and income tax each see the correct base (see tax/income.py).

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from ..checks import account_residuals, assert_conservation
 from ..model import EventKind
 from ..spec import build_household, spec_from_model, validate_spec
+from ..spec.io import Format, dumps, loads
 from .spec_helpers import fixture_config, minimal, spec_of
 
 
@@ -121,13 +122,23 @@ class TestMortgageMaturity(unittest.TestCase):
         self.assertEqual(payoff.details["cash_floor"], 10000)
         shortfalls = built.model.event_log.of_kind(EventKind.SHORTFALL_DEBT)
         self.assertEqual([e.amount for e in shortfalls], [53000, 500])
-        built.model.step()
-        rate = fixture_config().debt.effective_unpaid_balance_interest_rate / 1200
-        self.assertEqual(loan.person.debt, 0)
-        self.assertAlmostEqual(built.items["cash"].balance, 70000 - 53500 * (1 + rate), places=6)
         self.assertEqual(account_residuals(built.model, 2026, month=1), {})
-        self.assertEqual(account_residuals(built.model, 2026, month=2), {})
-        assert_conservation(built.model, monthly=True)
+
+        snapshot = spec_from_model(built.model)
+        runs = [built]
+        formats: tuple[Format, ...] = ("json", "yaml")
+        for fmt in formats:
+            loaded = loads(dumps(snapshot, fmt), fmt)
+            runs.append(build_household(loaded, config=fixture_config(), collect="month"))
+        rate = fixture_config().debt.effective_unpaid_balance_interest_rate / 1200
+        for run in runs:
+            owner = run.items["home"].mortgage.person
+            self.assertEqual(owner.debt, 53500)
+            run.model.step()
+            self.assertEqual(owner.debt, 0)
+            self.assertAlmostEqual(run.items["cash"].balance, 70000 - 53500 * (1 + rate), places=6)
+            self.assertEqual(account_residuals(run.model, 2026, month=2), {})
+            assert_conservation(run.model, monthly=True)
 
     def test_already_below_cash_floor_borrows_only_the_payoff(self):
         inputs = maturity_inputs()

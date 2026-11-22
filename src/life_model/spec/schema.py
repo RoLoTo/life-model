@@ -2693,6 +2693,13 @@ class Person(SpecModel):
     )
     jobs: list[Job] = spec_field(default_factory=list, description="Jobs (W-2).")
     accounts: list[Account] = spec_field(default_factory=list, description="Accounts, discriminated by 'kind'.")
+    unpaid_bills_debt: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening balance of unpaid bills carried into the first month's settlement.",
+        unit="USD",
+        core="Person.unpaid_bills_debt",
+        allow_inf_nan=False,
+    )
     debts: list[Debt] = spec_field(default_factory=list, description="Debts (car, student, credit_card, heloc).")
     housing: list[Housing] = spec_field(default_factory=list, description="Homes and rentals.")
     insurance: list[Insurance] = spec_field(default_factory=list, description="Insurance policies.")

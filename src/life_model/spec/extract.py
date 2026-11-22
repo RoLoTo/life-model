@@ -247,6 +247,7 @@ class _Extractor:
             spending=self.spending(person.spending),
             jobs=jobs,
             accounts=_sorted(self.accounts(person, job_ids), ACCOUNT_KIND_ORDER),
+            unpaid_bills_debt=person.debt,
             debts=_sorted(self.debts(person, housing), DEBT_KIND_ORDER),
             housing=_sorted(housing, HOUSING_KIND_ORDER),
             insurance=_sorted(self.insurance(person), INSURANCE_KIND_ORDER),
