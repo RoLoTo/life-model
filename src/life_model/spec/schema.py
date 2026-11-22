@@ -3074,6 +3074,25 @@ class MortgageRenewalEvent(EventBase):
     )
 
 
+class MortgageMaturityEvent(EventBase):
+    """Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date."""
+
+    action: Literal["pay_mortgage_at_maturity"]
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    interest_due: NonNegativeMoney = spec_field(
+        description="Lender's quoted interest due at payoff.", unit="USD", allow_inf_nan=False
+    )
+    cash_to_keep: NonNegativeMoney = spec_field(
+        0.0, description="Minimum spendable bank cash to keep after payoff.", unit="USD", allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def _full_date(self) -> "MortgageMaturityEvent":
+        if self.at.day is None:
+            raise ValueError("A mortgage maturity payoff requires a full calendar date")
+        return self
+
+
 class HelocDrawEvent(EventBase):
     """Draw on a home equity line: to the bank, or spent on improvements to the home securing it."""
 
@@ -3125,6 +3144,7 @@ Event = Annotated[
     | DieEvent
     | RefinanceEvent
     | MortgageRenewalEvent
+    | MortgageMaturityEvent
     | HelocDrawEvent
     | DisabilityEvent,
     Field(discriminator="action"),
@@ -3152,6 +3172,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "die",
     "refinance",
     "renew_mortgage",
+    "pay_mortgage_at_maturity",
     "heloc_draw",
     "disability",
 )

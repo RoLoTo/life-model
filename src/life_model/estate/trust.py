@@ -120,10 +120,14 @@ class Trust(LifeModelAgent):
         if amount <= 0:
             return 0.0
         if self.trust_type == TrustType.IRREVOCABLE:
-            post = {"kind": FlowKind.GIFT, "sink": f"{self.name} (irrevocable trust)", "cause": "trust funding"}
+            unpaid = self.grantor.deduct_from_bank_accounts(
+                amount, kind=FlowKind.GIFT, sink=f"{self.name} (irrevocable trust)", cause="trust funding"
+            )
         else:
-            post = {"kind": FlowKind.TRANSFER, "to_account": self, "cause": "revocable trust funding"}
-        transferred = amount - self.grantor.deduct_from_bank_accounts(amount, **post)
+            unpaid = self.grantor.deduct_from_bank_accounts(
+                amount, kind=FlowKind.TRANSFER, to_account=self, cause="revocable trust funding"
+            )
+        transferred = amount - unpaid
         if transferred <= 0:
             return 0.0
         self.balance += transferred

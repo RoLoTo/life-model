@@ -802,6 +802,7 @@ class Person(LifeModelAgent):
         sink: str | None = None,
         to_account=None,
         cause: str | None = None,
+        include_reserve: bool = True,
     ) -> float:
         """Deducts money from bank accounts.
 
@@ -811,6 +812,7 @@ class Person(LifeModelAgent):
 
         Args:
             amount (float): Amount to deduct.
+            include_reserve (bool): Whether emergency reserves can cover any remainder.
 
         Returns:
             float: Amount that could not be deducted.
@@ -819,6 +821,8 @@ class Person(LifeModelAgent):
         # Emergency-reserve accounts last; joint accounts titled to the spouse after this person's own.
         for account in sorted(self.usable_bank_accounts, key=lambda a: bool(getattr(a, "reserve", False))):
             if remaining <= 0:
+                break
+            if not include_reserve and getattr(account, "reserve", False):
                 break
             taken = account.withdraw(remaining)
             remaining -= taken
