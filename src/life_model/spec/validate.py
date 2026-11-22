@@ -1394,7 +1394,7 @@ class _SpecChecker:
                         self._person_accounts(self.people[event.person]), event.source, event.target, path
                     )
             if isinstance(event, s.RecurringExpenseEvent):
-                last = self.end
+                last: int | None = self.end
                 if event.until is not None:
                     if event.until.day is not None:
                         self.error(f"{path}.until.day", "'until' selects the last year of the recurring expense.")
