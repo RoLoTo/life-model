@@ -868,7 +868,7 @@ class _Builder:
             )
         raise NotImplementedError(f"debt kind {debt.kind!r} is not supported by the builder")
 
-    def build_home(self, person, home: s.Home, *, purchase: bool | None = None):
+    def build_home(self, person, home: s.Home, *, purchase: bool | None = None, cash_only: bool = False):
         from ..housing.home import Home, HomeExpenses, Mortgage
 
         mortgage = None
@@ -915,6 +915,7 @@ class _Builder:
             pmi=home.pmi,
             pmi_monthly=home.pmi_monthly,
             closing_cost_percent=home.closing_cost_pct,
+            cash_only=cash_only,
         )
 
     def build_rental(self, person, rental: s.Rental):

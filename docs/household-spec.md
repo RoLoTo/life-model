@@ -1114,6 +1114,22 @@ Buy a home: down payment and closing costs are paid from the person's accounts.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"buy_home"` |  | **required** |  |  |
 | `home` | [Home](#home) |  | **required** |  | The home bought ('purchase' is forced true). |
+| `cash_funding` | [HomeCashFunding](#homecashfunding) (optional) |  | — |  | Optional rule that sets the down payment, closing costs and mortgage from bank cash. |
+
+## HomeCashFunding
+
+Size a purchase from available bank cash after protecting cash and paying costs.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `closing_costs` | Decimal | USD | **required** |  | Total cash cost of closing. |
+| `cash_to_keep` | Decimal | USD | **required** |  | Bank cash to retain at closing. |
+| `minimum_down_payment` | Decimal | USD | **required** |  | Minimum cash down payment. |
+| `mortgage_limit` | Decimal | USD | **required** |  | Maximum financing available at closing. |
+| `rate_pct` | number | percent | **required** |  | Mortgage APR for the new loan. |
+| `term_years` | integer | years | **required** |  | Mortgage amortization in years. |
+| `down_payment_fraction` | Decimal |  | `1` |  | Share of available cash to put down after costs and retained cash (0 to 1). |
+| `extra_down_payment` | Decimal | USD | `0` |  | Cash to add to the chosen share, subject to available funds. |
 
 ## SellHomeEvent
 
