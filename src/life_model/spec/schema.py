@@ -28,6 +28,7 @@ Conventions (enforced by the field types and :mod:`life_model.spec.validate`):
   field means removing its marker and teaching the builder and extractor to map it.
 """
 
+from datetime import date
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -269,7 +270,8 @@ class Relative(SpecModel):
 
 class At(SpecModel):
     """When an event happens: exactly one of ``year``, ``age`` or ``relative``, plus an optional
-    ``month``.
+    ``month``. With an explicit year and month, ``day`` orders events within the same stage.
+    For example, ``at: {year: 2030, month: 7, day: 20}``.
 
     Shorthand: an integer is a year (``at: 2030``); ``"2030-07"`` is July 2030.
 
@@ -291,6 +293,15 @@ class At(SpecModel):
         core="LifeEvent.month",
         ge=1,
         le=12,
+    )
+    day: int | None = spec_field(
+        None,
+        description="Calendar day for ordering events within their stage. Requires an explicit year and month. "
+        "An unspecified day sorts as day 1. A relative event in its anchor's year and month follows the anchor's day.",
+        unit="day",
+        core="LifeEvent.day",
+        ge=1,
+        le=31,
     )
 
     @model_validator(mode="before")
@@ -315,6 +326,10 @@ class At(SpecModel):
             raise ValueError(f"'at' needs exactly one of year, age or relative (got {chosen or 'none'})")
         if self.person is not None and self.age is None:
             raise ValueError("'at.person' is only meaningful with 'at.age'")
+        if self.day is not None:
+            if self.year is None or self.month is None:
+                raise ValueError("'at.day' requires an explicit calendar year and month")
+            date(self.year, self.month, self.day)
         return self
 
 
@@ -2854,7 +2869,11 @@ class OneTimeExpenseEvent(EventBase):
 
 
 class RecurringExpenseEvent(EventBase):
-    """An expense added every year from ``at`` through ``until`` (inclusive)."""
+    """An expense added every year from ``at`` through ``until`` (inclusive).
+
+    The calendar day must exist in each year the expense runs. A February 29 expense can run
+    once when its recurrence ends in the starting year.
+    """
 
     action: Literal["recurring_expense"]
     amount_annual: NonNegativeMoney = spec_field(description="Amount per year.", unit="USD/year")
