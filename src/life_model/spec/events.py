@@ -38,6 +38,7 @@ Every compiled ``LifeEvent`` carries ``spec_source`` (the event or marriage it c
 :func:`~life_model.spec.extract.spec_from_model` reads back.
 """
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from ..lifeevents import LifeEvent
@@ -220,7 +221,7 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
 
     if action == "buy_home":
         name = _name(event, f"{person.name} buys {event.home.name}")
-        return [_life_event(year, name, event, _buy_home, builder, person, event.home)]
+        return [_life_event(year, name, event, _buy_home, builder, person, event.home, event.cash_funding)]
 
     if action == "sell_home":
         name = _name(event, f"{person.name} sells a home")
@@ -349,8 +350,37 @@ def _end_rental(builder: "_Builder", person, rental_id: str) -> None:
     rental.remove()
 
 
-def _buy_home(builder: "_Builder", person, home: s.Home) -> None:
-    agent = builder.build_home(person, home, purchase=True)
+def _buy_home(builder: "_Builder", person, home: s.Home, cash_funding: s.HomeCashFunding | None = None) -> None:
+    if cash_funding is not None:
+        from ..housing.closing import cash_funded_down_payment
+
+        price = Decimal(str(home.purchase_price))
+        down = cash_funded_down_payment(
+            person,
+            price=price,
+            closing_costs=cash_funding.closing_costs,
+            cash_floor=cash_funding.cash_floor,
+            minimum_down_payment=cash_funding.minimum_down_payment,
+            mortgage_limit=cash_funding.mortgage_limit,
+            down_payment_fraction=cash_funding.down_payment_fraction,
+            extra_down_payment=cash_funding.extra_down_payment,
+        )
+        principal = price - down
+        mortgage = (
+            s.Mortgage(
+                original_amount=float(principal), rate_pct=cash_funding.rate_pct, term_years=cash_funding.term_years
+            )
+            if principal
+            else None
+        )
+        home = home.model_copy(
+            update={
+                "down_payment": float(down),
+                "mortgage": mortgage,
+                "closing_cost_pct": float(100 * Decimal(str(cash_funding.closing_costs)) / price),
+            }
+        )
+    agent = builder.build_home(person, home, purchase=True, cash_only=cash_funding is not None)
     if home.id is not None:
         builder.built.items[home.id] = agent
         agent.spec_id = home.id
