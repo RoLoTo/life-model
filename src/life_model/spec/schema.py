@@ -1788,7 +1788,42 @@ class HomeEquityLine(SpecModel):
         return self
 
 
-Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine, Field(discriminator="kind")]
+class BridgeLine(SpecModel):
+    """Approved credit secured by the borrower's home with simple actual-days/365 interest."""
+
+    CORE_CLASS = "DatedBridgeLine"
+
+    kind: Literal["bridge_line"]
+    id: Identifier | None = _id_field("debt")
+    home: Identifier = spec_field(description="Id of the home securing the line.", core="DatedBridgeLine.home")
+    name: str | None = spec_field(None, description="Display name.")
+    credit_limit: NonNegativeMoney = spec_field(
+        description="Maximum drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
+    rate_pct: NonNegativePercent = spec_field(description="Annual simple interest rate.", unit="percent")
+    drawn_principal: NonNegativeMoney = spec_field(
+        0.0, description="Opening drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
+    accrued_interest: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening unpaid interest, which can include fractional cents.",
+        unit="USD",
+        allow_inf_nan=False,
+    )
+    accrued_through: date | None = spec_field(None, description="Date through which opening interest was calculated.")
+
+    @model_validator(mode="after")
+    def _opening(self) -> "BridgeLine":
+        if self.drawn_principal > self.credit_limit:
+            raise ValueError("Opening bridge principal exceeds the approved limit")
+        if (self.drawn_principal > 0) != (self.accrued_through is not None):
+            raise ValueError("Supply an accrued-through date exactly when there is opening principal")
+        if self.accrued_interest and not self.drawn_principal:
+            raise ValueError("Opening bridge interest requires drawn principal")
+        return self
+
+
+Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine | BridgeLine, Field(discriminator="kind")]
 
 
 # --- Housing -------------------------------------------------------------------------------------
@@ -2793,7 +2828,9 @@ class Person(SpecModel):
         core="Person.unpaid_bills_debt",
         allow_inf_nan=False,
     )
-    debts: list[Debt] = spec_field(default_factory=list, description="Debts (car, student, credit_card, heloc).")
+    debts: list[Debt] = spec_field(
+        default_factory=list, description="Debts (car, student, credit_card, heloc, bridge_line)."
+    )
     housing: list[Housing] = spec_field(default_factory=list, description="Homes and rentals.")
     insurance: list[Insurance] = spec_field(default_factory=list, description="Insurance policies.")
     social_security: SocialSecurity | None = spec_field(None, description="Social Security benefits.")
@@ -3123,6 +3160,9 @@ class MortgageMaturityEvent(EventBase):
     cash_floor: NonNegativeMoney = spec_field(
         0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
     )
+    bridge: Identifier | None = spec_field(
+        None, description="Borrower's approved bridge line. Draw up to its headroom to fund the payoff and cash floor."
+    )
 
     @model_validator(mode="after")
     def _full_date(self) -> "MortgageMaturityEvent":
@@ -3159,6 +3199,34 @@ class HelocDrawEvent(EventBase):
     amount: NonNegativeMoney = spec_field(description="Amount drawn (up to the available credit).", unit="USD")
     for_improvements: bool = spec_field(
         False, description="Spent on improvements (cost basis; deductible interest) instead of paid to the bank."
+    )
+
+
+class BridgeEvent(EventBase):
+    bridge: Identifier = spec_field(description="Id of the borrower's approved bridge line.")
+
+    @model_validator(mode="after")
+    def _full_date(self) -> "BridgeEvent":
+        if self.at.day is None:
+            raise ValueError("A bridge transaction requires a full calendar date")
+        return self
+
+
+class DrawBridgeEvent(BridgeEvent):
+    """Deposit a dated draw from approved secured credit into bank cash."""
+
+    action: Literal["draw_bridge"]
+    amount: NonNegativeMoney = spec_field(
+        description="Required draw in whole cents.", unit="USD", gt=0, multiple_of=0.01, allow_inf_nan=False
+    )
+
+
+class RepayBridgeEvent(BridgeEvent):
+    """Repay the bridge from spendable cash, carrying any gap as unpaid-bills debt."""
+
+    action: Literal["repay_bridge"]
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable cash protected from repayment.", unit="USD", multiple_of=0.01, allow_inf_nan=False
     )
 
 
@@ -3204,6 +3272,8 @@ Event = Annotated[
     | MortgageMaturityEvent
     | MortgagePrepaymentEvent
     | HelocDrawEvent
+    | DrawBridgeEvent
+    | RepayBridgeEvent
     | DisabilityEvent,
     Field(discriminator="action"),
 ]
@@ -3232,6 +3302,8 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "pay_mortgage_at_maturity",
     "prepay_mortgage",
     "heloc_draw",
+    "draw_bridge",
+    "repay_bridge",
     "disability",
 )
 

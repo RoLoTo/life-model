@@ -8,8 +8,8 @@ import math
 from calendar import monthrange
 from dataclasses import dataclass, replace
 from datetime import date
-from decimal import ROUND_DOWN, Decimal
-from typing import ClassVar, Literal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis, scheduled_balance
@@ -20,6 +20,14 @@ from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
 from .prepayment import MortgagePrepaymentPrivilege
+
+if TYPE_CHECKING:
+    from ..debt.bridge import DatedBridgeLine
+
+
+def _bridge_draw_amount(gap: float) -> float:
+    """Smallest whole-cent draw that covers the gap."""
+    return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
 
 
 @dataclass(frozen=True)
@@ -263,15 +271,19 @@ class Home(LifeModelAgent):
             )
         )
 
-    def sell(self, selling_cost_percent: float | None = None) -> float:
+    def sell(self, selling_cost_percent: float | None = None, *, when: date | None = None) -> float:
         """Sell the home: pay off the mortgage, realize equity to cash, and tax the gain.
 
         The taxable gain above the §121 primary-residence exclusion (2-of-5-year residency assumed)
         is added to the owner's income. Net proceeds (sale price − selling costs − mortgage payoff)
-        are credited to the owner's bank account. Returns the net proceeds.
+        are credited to the owner's bank account. Returns the net proceeds. The sale date defaults
+        to the first of the simulated month and is used for dated credit secured by the home.
         """
         if self.sold:
             return 0.0
+        sale_date = when if when is not None else date(self.model.year, self.model.month, 1)
+        if (sale_date.year, sale_date.month) != (self.model.year, self.model.month):
+            raise ValueError("A home sale must execute in its scheduled month")
         housing = self.model.config.housing
         if selling_cost_percent is None:
             selling_cost_percent = housing.selling_cost_percent
@@ -280,7 +292,7 @@ class Home(LifeModelAgent):
         selling_costs = sale_price * (selling_cost_percent / 100)
         mortgage_payoff = self.mortgage.principal if self.mortgage is not None else 0.0
         helocs = [line for line in self.person.home_equity_lines if line.home is self]
-        heloc_payoff = sum(line.balance for line in helocs)
+        heloc_payoff = sum(line.sale_payoff_amount(sale_date) for line in helocs)
 
         cost_basis = self.cost_basis + self.total_improvements
         gain = sale_price - selling_costs - cost_basis
@@ -295,7 +307,7 @@ class Home(LifeModelAgent):
         ledger = self.model.ledger
         cause = f"sale of {self.name}"
         for line in helocs:
-            line.pay_off_from_sale(cause)
+            line.pay_off_from_sale(cause, when=sale_date)
         # The home's value leaves the balance sheet: selling costs are spent, the mortgage is paid
         # off from the price, and the rest arrives as cash.
         ledger.post(
@@ -756,11 +768,13 @@ class Mortgage(Loan):
         elif self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
 
-    def pay_at_maturity(self, when: date, *, interest_due: float, cash_floor: float = 0.0) -> None:
+    def pay_at_maturity(
+        self, when: date, *, interest_due: float, cash_floor: float = 0.0, bridge: "DatedBridgeLine | None" = None
+    ) -> None:
         """Discharge the live principal and quoted final interest before scheduled bills.
 
-        Draw spendable cash above the floor and carry any unpaid amount as debt due next month.
-        The caller supplies the maturity date and lender's final interest.
+        An approved bridge draws up to the lesser of the whole cents needed and available credit.
+        Draw spendable cash above the floor and carry any remaining gap as debt due next month.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
@@ -769,8 +783,20 @@ class Mortgage(Loan):
         if self.principal <= 0:
             return
         person = self.person
+        if bridge is not None and bridge.person is not person:
+            raise ValueError("The borrower must own the approved bridge line")
         principal = self.principal
         payoff = principal + interest_due
+        bridge_draw = 0.0
+        if bridge is not None:
+            bank = person.primary_bank_account
+            bank_cash = person.usable_bank_balance
+            gap = snap_money(payoff + cash_floor - bank_cash)
+            if gap > 0 and bank is not None and not bank.reserve:
+                requested = min(_bridge_draw_amount(gap), bridge.get_available_credit())
+                if requested > 0:
+                    bridge_draw = bridge.draw(requested, when=when)
+
         cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
         shortfall = 0.0
         for amount, account, sink, cause in (
@@ -796,20 +822,21 @@ class Mortgage(Loan):
         self._record_month(principal, interest_due)
         person.stat_housing_costs = snap_money(person.stat_housing_costs + payoff)
         person.stat_interest_paid = snap_money(person.stat_interest_paid + interest_due)
-        self.model.event_log.add(
-            Event(
-                EventKind.MORTGAGE_PAID_AT_MATURITY,
-                person=person,
-                account=self,
-                amount=payoff,
-                cause="mortgage payoff",
-                date=when.isoformat(),
-                principal=principal,
-                interest_due=interest_due,
-                cash_floor=cash_floor,
-                shortfall_debt=snap_money(shortfall),
-            )
+        event = Event(
+            EventKind.MORTGAGE_PAID_AT_MATURITY,
+            person=person,
+            account=self,
+            amount=payoff,
+            cause="mortgage payoff",
+            date=when.isoformat(),
+            principal=principal,
+            interest_due=interest_due,
+            cash_floor=cash_floor,
+            shortfall_debt=snap_money(shortfall),
         )
+        if bridge is not None:
+            event.details["bridge_draw"] = bridge_draw
+        self.model.event_log.add(event)
 
     def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_floor: float = 0.0) -> float:
         """Pay a fraction of cash above the tax holdback and cash floor after the month's bills."""
@@ -1077,10 +1104,12 @@ def qualified_residence_interest(person: Person) -> float:
     limit, the interest is scaled by limit / balance (Pub. 936's worksheet with average balances).
     Interest on home-equity debt not used for the home is not deductible.
     """
+    from ..debt.bridge import DatedBridgeLine
+
     federal = person.model.year_config.tax.federal
     share = 0.5 if person.filing_status == FilingStatus.MARRIED_FILING_SEPARATELY else 1.0
     debts = [home.mortgage for home in person.homes if getattr(home, "mortgage", None) is not None]
-    debts += list(person.home_equity_lines)
+    debts += [line for line in person.home_equity_lines if not isinstance(line, DatedBridgeLine)]
     interest = acquisition = grandfathered = 0.0
     for debt in debts:
         debt_interest = debt.interest_paid_this_year

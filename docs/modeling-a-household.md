@@ -70,6 +70,23 @@ bypasses prepayment caps and fees. The payoff follows the home's current owner a
 bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
 `shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
+Set the payoff's optional `bridge` to a borrower-owned `bridge_line` id to draw automatically.
+The draw rounds the amount needed to fund the payoff and preserve `cash_floor` up to whole cents,
+then caps it at approved headroom. The payoff records the bridge draw and carries any remaining gap
+as `shortfall_debt`, due with the next month's bills. The model treats bridge interest as
+non-deductible financing expense, including interest on an automatic draw. Qualified refinancing
+can count as acquisition debt up to the prior qualifying principal under U.S. rules.
+[IRS Publication 936](https://www.irs.gov/publications/p936)
+
+Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
+home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
+its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
+and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
+explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
+using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
+limit applies to principal. A sale of
+the collateral clears the bridge through the sale date before depositing the net proceeds.
+For same-day events that rely on one another, give them IDs that sort in the intended order.
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
