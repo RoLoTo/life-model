@@ -299,7 +299,7 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
 
     if action in ("draw_bridge", "repay_bridge"):
         name = _name(event, f"{person.name}: {action.replace('_', ' ')}")
-        return [_life_event(year, name, event, _bridge_transaction, builder, person, event)]
+        return [_life_event(year, name, event, _bridge_transaction, builder, event)]
 
     if action == "convert_to_roth":
         what = (
@@ -589,16 +589,21 @@ def _owned_bridge(builder: "_Builder", person, bridge_id: str):
     return line
 
 
-def _bridge_transaction(builder: "_Builder", person, event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
+def _bridge_transaction(builder: "_Builder", event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
     from datetime import date
 
-    line = _owned_bridge(builder, person, event.bridge)
+    from ..debt.bridge import DatedBridgeLine
+
+    line = builder.built.items.get(event.bridge)
+    if not isinstance(line, DatedBridgeLine) or line.home.sold or line.person.is_deceased:
+        builder.model.event_log.add(Event(f"bridge transaction skipped: {event.bridge} has no active borrower"))
+        return
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
     if isinstance(event, s.DrawBridgeEvent):
         line.draw(event.amount, when=when)
     else:
-        line.repay(when, cash_to_keep=event.cash_to_keep)
+        line.repay(when, cash_floor=event.cash_floor)
 
 
 def _disability(person) -> None:
