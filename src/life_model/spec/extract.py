@@ -247,6 +247,7 @@ class _Extractor:
             spending=self.spending(person.spending),
             jobs=jobs,
             accounts=_sorted(self.accounts(person, job_ids), ACCOUNT_KIND_ORDER),
+            unpaid_bills_debt=person.debt,
             debts=_sorted(self.debts(person, housing), DEBT_KIND_ORDER),
             housing=_sorted(housing, HOUSING_KIND_ORDER),
             insurance=_sorted(self.insurance(person), INSURANCE_KIND_ORDER),
@@ -1170,6 +1171,10 @@ class _Extractor:
             update: dict[str, Any] = {"at": at}
             if isinstance(source, s.RecurringExpenseEvent):
                 update["until"] = s.At(year=max(when[0] for when in dates[id(source)]))
+            if isinstance(source, s.MortgageMaturityEvent):
+                owner = next((p for p in self.people() if any(self.item_id(h) == source.home for h in p.homes)), None)
+                if owner is not None:
+                    update["person"] = self.pid(owner)
             retimed.append(source.model_copy(update=update))
         return retimed
 

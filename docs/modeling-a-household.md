@@ -53,10 +53,11 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 
 Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
 `at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
-month's regular bills. The optional `cash_to_keep` is a minimum immediately after payoff. Funding
-comes from spendable bank cash, excluding emergency reserves. When relying on a same-day receipt,
+month's regular bills. Use the date on the mortgage contract. The engine accepts that date and
+bypasses prepayment caps and fees. The payoff follows the home's current owner and draws spendable
+bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
+`shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
-A cash shortfall stops the run before any payoff is posted.
 
 Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
 home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
