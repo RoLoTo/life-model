@@ -9,11 +9,12 @@ from ..account.bank import BankAccount
 from ..checks import account_residuals, assert_conservation
 from ..housing.home import Home, HomeExpenses
 from ..spec import build_household
+from ..spec.io import Format, dumps, loads
 from .spec_helpers import fixture_config, minimal, spec_of
 
 
 class TestCashFundedClosing(unittest.TestCase):
-    def _household(self, receipt_day):
+    def _spec(self, receipt_day):
         data = minimal(
             jobs=[],
             spending={"amount_annual": 0},
@@ -43,7 +44,7 @@ class TestCashFundedClosing(unittest.TestCase):
                 },
                 "cash_funding": {
                     "closing_costs": 20000,
-                    "cash_to_keep": 30000,
+                    "cash_floor": 30000,
                     "minimum_down_payment": 100000,
                     "mortgage_limit": 400000,
                     "term_years": 25,
@@ -51,7 +52,17 @@ class TestCashFundedClosing(unittest.TestCase):
                 },
             },
         ]
-        return build_household(spec_of(data), config=fixture_config(), collect="month", check=False)
+        return spec_of(data)
+
+    def _household(self, receipt_day):
+        return build_household(self._spec(receipt_day), config=fixture_config(), collect="month", check=False)
+
+    def test_closing_terms_round_trip_through_json_and_yaml(self):
+        spec = self._spec(27)
+        formats: tuple[Format, ...] = ("json", "yaml")
+        for fmt in formats:
+            with self.subTest(format=fmt):
+                self.assertEqual(loads(dumps(spec, fmt), fmt), spec)
 
     def test_closing_uses_cash_that_arrived_before_the_closing_date(self):
         built = self._household(27)
@@ -91,7 +102,7 @@ class TestCashFundedClosing(unittest.TestCase):
                 built.people["alex"],
                 price=500000,
                 closing_costs=5000,
-                cash_to_keep=0,
+                cash_floor=0,
                 minimum_down_payment=50000,
                 mortgage_limit=375000,
             )

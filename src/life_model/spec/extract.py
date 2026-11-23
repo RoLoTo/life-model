@@ -937,6 +937,7 @@ class _Extractor:
                 start_year = getattr(m, "spec_start_year", None) if not self.stepped else None
                 if start_year is None and m.start_date is not None and getattr(m, "spec_loan_inputs", None) is None:
                     start_year = _none_if(int(m.start_date), start)
+                renewal_state = m.renewal_state
                 privilege = None
                 if m.prepayment_privilege is not None:
                     cap = m.prepayment_privilege
@@ -948,13 +949,12 @@ class _Extractor:
                         basis_amount=float(cap.basis_amount),
                         used=float(cap.used_for(as_of)),
                     )
-                renewal_state = m.renewal_state
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
                     rate_compounding=m.rate_compounding,
-                    prepayment_privilege=privilege,
                     renewal_state=None if renewal_state is None else s.MortgageRenewalState(**asdict(renewal_state)),
+                    prepayment_privilege=privilege,
                     **terms,
                 )
             e = home.expenses

@@ -1325,12 +1325,13 @@ class _SpecChecker:
                 if target is None or target[0] != event.person or not isinstance(target[2], s.Home):
                     self.error(f"{path}.home", "must be a home owned by the borrower", code="unknown_reference")
                 elif target[2].mortgage is None:
-                    operation = {
-                        "renew_mortgage": "renew",
-                        "pay_mortgage_at_maturity": "pay off",
-                        "prepay_mortgage": "prepay",
-                    }[event.action]
-                    self.error(f"{path}.home", f"the home has no mortgage to {operation}")
+                    if isinstance(event, s.MortgageRenewalEvent):
+                        action = "renew"
+                    elif isinstance(event, s.MortgagePrepaymentEvent):
+                        action = "prepay"
+                    else:
+                        action = "pay off"
+                    self.error(f"{path}.home", f"the home has no mortgage to {action}")
                 elif (
                     isinstance(event, s.MortgageRenewalEvent)
                     and isinstance(event.prepayment_privilege, s.MortgagePrepaymentPrivilege)
@@ -1352,14 +1353,14 @@ class _SpecChecker:
                     self.error(f"{path}.debt", f"home {event.debt!r} has no mortgage to refinance", code="invalid")
             if isinstance(event, s.HelocDrawEvent) and not is_kind(event.heloc, s.HomeEquityLine):
                 self.error(f"{path}.heloc", f"unknown home equity line {event.heloc!r}", code="unknown_reference")
-            if isinstance(event, s.ReserveCashEvent):
-                target = item_ids.get(event.bank)
-                if target is None or target[0] != event.person or not isinstance(target[2], s.BankAccount):
-                    self.error(f"{path}.bank", "Funding bank must be owned by the person setting aside cash.")
             if isinstance(event, s.BridgeEvent | s.MortgageMaturityEvent) and event.bridge is not None:
                 bridge = item_ids.get(event.bridge)
                 if bridge is None or bridge[0] != event.person or not isinstance(bridge[2], s.BridgeLine):
                     self.error(f"{path}.bridge", "must be an approved bridge line owned by the borrower")
+            if isinstance(event, s.ReserveCashEvent):
+                target = item_ids.get(event.bank)
+                if target is None or target[0] != event.person or not isinstance(target[2], s.BankAccount):
+                    self.error(f"{path}.bank", "Funding bank must be owned by the person setting aside cash.")
             if isinstance(event, s.ContributeEvent):
                 target = item_ids.get(event.account)
                 if target is None or target[1] != "accounts":

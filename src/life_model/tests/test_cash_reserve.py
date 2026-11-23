@@ -14,6 +14,7 @@ from ..people.family import Family
 from ..people.person import Person, Spending
 from ..policies import move_from_bank
 from ..spec import build_household, spec_from_model
+from ..spec.io import Format, dumps, loads
 from .spec_helpers import fixture_config, minimal, spec_of
 
 
@@ -91,15 +92,21 @@ class TestCashReserve(unittest.TestCase):
                 "amount": 1000,
             },
         ]
-        built = build_household(spec_of(data), config=fixture_config(), check=False, collect="month")
+        spec = spec_of(data)
+        formats: tuple[Format, ...] = ("json", "yaml")
+        for fmt in formats:
+            self.assertEqual(loads(dumps(spec, fmt), fmt), spec)
+        built = build_household(spec, config=fixture_config(), check=False, collect="month")
         built.model.step_year()
         self.assertEqual((built.items["cash"].balance, built.items["earmark"].balance), (100, 900))
         self.assertEqual(account_residuals(built.model, 2026, month=12), {})
         snapshot = spec_from_model(built.model)
-        rebuilt = build_household(snapshot, config=fixture_config(), check=False, collect="month")
-        rebuilt.model.step()
-        self.assertEqual(rebuilt.items["investments"].balance, 0)
-        rebuilt.model.step()
-        self.assertEqual((rebuilt.items["earmark"].balance, rebuilt.items["investments"].balance), (0, 1000))
-        assert_conservation(rebuilt.model, monthly=True)
-        self.assertEqual(account_residuals(rebuilt.model, 2027, month=2), {})
+        for fmt in formats:
+            with self.subTest(format=fmt):
+                rebuilt = build_household(loads(dumps(snapshot, fmt), fmt), config=fixture_config(), collect="month")
+                rebuilt.model.step()
+                self.assertEqual(rebuilt.items["investments"].balance, 0)
+                rebuilt.model.step()
+                self.assertEqual((rebuilt.items["earmark"].balance, rebuilt.items["investments"].balance), (0, 1000))
+                assert_conservation(rebuilt.model, monthly=True)
+                self.assertEqual(account_residuals(rebuilt.model, 2027, month=2), {})

@@ -925,15 +925,15 @@ class _Builder:
         if home.mortgage is not None:
             m = home.mortgage
             terms = self._loan_terms(m)
+            renewal_state = m.renewal_state
             privilege = m.prepayment_privilege
             as_of = date(self.model.year, self.model.month, 1)
-            renewal_state = m.renewal_state
             mortgage = Mortgage(
                 start_year=m.start_year if m.start_year is not None else self.model.year,
                 escrow_monthly=m.escrow_monthly,
                 rate_compounding=m.rate_compounding,
-                prepayment_privilege=None if privilege is None else privilege.resolve(as_of, m.original_amount),
                 renewal_state=None if renewal_state is None else MortgageRenewalState(**renewal_state.model_dump()),
+                prepayment_privilege=None if privilege is None else privilege.resolve(as_of, m.original_amount),
                 **terms,
             )
             self._remember_loan(mortgage, m)

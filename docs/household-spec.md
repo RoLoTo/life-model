@@ -763,21 +763,10 @@ Builds: `Mortgage`.
 | `extra_principal_monthly` | number | USD/month | `0.0` | `Loan.extra_principal_monthly` | Extra principal paid with every payment (paid with the month's bills). |
 | `schedule` | `"contract"` \\| `"statement"` |  | `"contract"` | `Loan.schedule` | Which inputs to trust. 'contract' (default): the original terms define the schedule and the statement must agree (a balance above the original schedule is an error). 'statement': the loan is behind its original schedule (late payments, a deferral, a forbearance) and the statement's balance is right: it amortizes from balance at payment_monthly, else over remaining_months, else at the contract payment of original_amount over the term (paying off after the original maturity); original_amount, term and origination are then kept for the record. Needs balance. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` | `Mortgage.rate_compounding` | Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent. |
-| `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) (optional) |  | — | `Mortgage.prepayment_privilege` | Optional contract cap on lump sums. |
 | `renewal_state` | [MortgageRenewalState](#mortgagerenewalstate) (optional) |  | — | `Mortgage.renewal_state` | PMI and acquisition debt state saved alongside the current repayment schedule after renewal. |
+| `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) (optional) |  | — | `Mortgage.prepayment_privilege` | Optional contract cap on lump sums. |
 | `start_year` | integer (optional) | year | — | `Mortgage.start_date` | Year the loan was originated (prefer origination). Without a balance, a year before the start is taken as an origination in January of that year. |
 | `escrow_monthly` | number (optional) | USD/month | — | `Mortgage.escrow_monthly` | Escrow included in payment_monthly (subtracted: the home's expenses pay tax and insurance). |
-
-## MortgagePrepaymentPrivilege
-
-Annual cap on lump-sum principal payments.
-
-| Field | Type | Unit | Default | Maps to | Description |
-|---|---|---|---|---|---|
-| `anniversary` | date |  | **required** |  | First eligible date and annual reset anniversary. |
-| `annual_limit_pct` | number | percent | **required** |  | Percentage of the fixed contract basis allowed per contract year. |
-| `basis_amount` | number (optional) | USD | — |  | Fixed contract amount. Defaults to the original mortgage or the balance at renewal. |
-| `used` | number | USD | `0.0` |  | Amount already used in the opening contract year. |
 
 ## MortgageRenewalState
 
@@ -795,6 +784,17 @@ Builds: `MortgageRenewalState`.
 | `origination` | string (optional) |  | — |  | Origination month of the PMI schedule, when known. |
 | `acquisition_cap` | number (optional) | USD | — |  | Maximum acquisition debt balance (omit if all debt qualifies). |
 | `grandfathered_cap` | number | USD | `0.0` |  | Maximum grandfathered debt balance. |
+
+## MortgagePrepaymentPrivilege
+
+Annual cap on lump-sum principal payments.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `anniversary` | date |  | **required** |  | First eligible date and annual reset anniversary. |
+| `annual_limit_pct` | number | percent | **required** |  | Percentage of the fixed contract basis allowed per contract year. |
+| `basis_amount` | number (optional) | USD | — |  | Fixed contract amount. Defaults to the original mortgage or the balance at renewal. |
+| `used` | number | USD | `0.0` |  | Amount already used in the opening contract year. |
 
 ## HomeExpenses
 
@@ -1189,14 +1189,14 @@ Size a purchase from available bank cash after protecting cash and paying costs.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
-| `closing_costs` | Decimal | USD | **required** |  | Total cash cost of closing. |
-| `cash_to_keep` | Decimal | USD | **required** |  | Bank cash to retain at closing. |
-| `minimum_down_payment` | Decimal | USD | **required** |  | Minimum cash down payment. |
-| `mortgage_limit` | Decimal | USD | **required** |  | Maximum financing available at closing. |
+| `closing_costs` | number | USD | **required** |  | Total cash cost of closing. |
+| `cash_floor` | number | USD | **required** |  | Bank cash to retain at closing. |
+| `minimum_down_payment` | number | USD | **required** |  | Minimum cash down payment. |
+| `mortgage_limit` | number | USD | **required** |  | Maximum financing available at closing. |
 | `rate_pct` | number | percent | **required** |  | Mortgage APR for the new loan. |
 | `term_years` | integer | years | **required** |  | Mortgage amortization in years. |
-| `down_payment_fraction` | Decimal |  | `1` |  | Share of available cash to put down after costs and retained cash (0 to 1). |
-| `extra_down_payment` | Decimal | USD | `0` |  | Cash to add to the chosen share, subject to available funds. |
+| `down_payment_fraction` | number |  | `1.0` |  | Share of available cash to put down after costs and retained cash (0 to 1). |
+| `extra_down_payment` | number | USD | `0.0` |  | Cash to add to the chosen share, subject to available funds. |
 
 ## SellHomeEvent
 

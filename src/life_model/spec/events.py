@@ -381,7 +381,7 @@ def _buy_home(builder: "_Builder", person, home: s.Home, cash_funding: s.HomeCas
             person,
             price=price,
             closing_costs=cash_funding.closing_costs,
-            cash_to_keep=cash_funding.cash_to_keep,
+            cash_floor=cash_funding.cash_floor,
             minimum_down_payment=cash_funding.minimum_down_payment,
             mortgage_limit=cash_funding.mortgage_limit,
             down_payment_fraction=cash_funding.down_payment_fraction,
@@ -399,7 +399,7 @@ def _buy_home(builder: "_Builder", person, home: s.Home, cash_funding: s.HomeCas
             update={
                 "down_payment": float(down),
                 "mortgage": mortgage,
-                "closing_cost_pct": float(100 * cash_funding.closing_costs / price),
+                "closing_cost_pct": float(100 * Decimal(str(cash_funding.closing_costs)) / price),
             }
         )
     agent = builder.build_home(person, home, purchase=True, cash_only=cash_funding is not None)

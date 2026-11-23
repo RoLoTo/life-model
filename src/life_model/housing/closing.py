@@ -63,7 +63,7 @@ def cash_funded_down_payment(
     *,
     price: Decimal | float,
     closing_costs: Decimal | float,
-    cash_to_keep: Decimal | float,
+    cash_floor: Decimal | float,
     minimum_down_payment: Decimal | float,
     mortgage_limit: Decimal | float,
     down_payment_fraction: Decimal | float = Decimal(1),
@@ -72,7 +72,7 @@ def cash_funded_down_payment(
     """Calculate a closing down payment from bank cash without moving balances or creating a loan."""
     price = _money(price, "price")
     costs = _money(closing_costs, "closing_costs")
-    retained = _money(cash_to_keep, "cash_to_keep")
+    retained = _money(cash_floor, "cash_floor")
     minimum = _money(minimum_down_payment, "minimum_down_payment")
     limit = _money(mortgage_limit, "mortgage_limit")
     extra = _money(extra_down_payment, "extra_down_payment")

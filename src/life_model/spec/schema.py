@@ -1843,6 +1843,25 @@ Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine | BridgeLin
 # --- Housing -------------------------------------------------------------------------------------
 
 
+class MortgageRenewalState(SpecModel):
+    """The PMI schedule and acquisition debt limits saved when a mortgage has renewed."""
+
+    CORE_CLASS = "MortgageRenewalState"
+
+    original_amount: NonNegativeMoney = spec_field(
+        description="Principal at the start of the PMI schedule.", unit="USD"
+    )
+    rate_pct: NonNegativePercent = spec_field(description="Annual rate on a monthly compounding basis.", unit="percent")
+    payment_monthly: NonNegativeMoney = spec_field(description="Scheduled principal and interest.", unit="USD/month")
+    term_months: int = spec_field(description="Full term of the PMI schedule.", unit="month", ge=0)
+    payments_made: int = spec_field(description="Payments made across all renewal terms.", unit="month", ge=0)
+    origination: YearMonth | None = spec_field(None, description="Origination month of the PMI schedule, when known.")
+    acquisition_cap: NonNegativeMoney | None = spec_field(
+        None, description="Maximum acquisition debt balance (omit if all debt qualifies).", unit="USD"
+    )
+    grandfathered_cap: NonNegativeMoney = spec_field(0.0, description="Maximum grandfathered debt balance.", unit="USD")
+
+
 class MortgagePrepaymentPrivilege(SpecModel):
     """Annual cap on lump-sum principal payments."""
 
@@ -1874,25 +1893,6 @@ class MortgagePrepaymentPrivilege(SpecModel):
         )
 
 
-class MortgageRenewalState(SpecModel):
-    """The PMI schedule and acquisition debt limits saved when a mortgage has renewed."""
-
-    CORE_CLASS = "MortgageRenewalState"
-
-    original_amount: NonNegativeMoney = spec_field(
-        description="Principal at the start of the PMI schedule.", unit="USD"
-    )
-    rate_pct: NonNegativePercent = spec_field(description="Annual rate on a monthly compounding basis.", unit="percent")
-    payment_monthly: NonNegativeMoney = spec_field(description="Scheduled principal and interest.", unit="USD/month")
-    term_months: int = spec_field(description="Full term of the PMI schedule.", unit="month", ge=0)
-    payments_made: int = spec_field(description="Payments made across all renewal terms.", unit="month", ge=0)
-    origination: YearMonth | None = spec_field(None, description="Origination month of the PMI schedule, when known.")
-    acquisition_cap: NonNegativeMoney | None = spec_field(
-        None, description="Maximum acquisition debt balance (omit if all debt qualifies).", unit="USD"
-    )
-    grandfathered_cap: NonNegativeMoney = spec_field(0.0, description="Maximum grandfathered debt balance.", unit="USD")
-
-
 class Mortgage(_LoanTerms):
     __doc__ = (
         "The mortgage on a home. "
@@ -1909,13 +1909,13 @@ class Mortgage(_LoanTerms):
         description="Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent.",
         core="Mortgage.rate_compounding",
     )
-    prepayment_privilege: MortgagePrepaymentPrivilege | None = spec_field(
-        None, description="Optional contract cap on lump sums.", core="Mortgage.prepayment_privilege"
-    )
     renewal_state: MortgageRenewalState | None = spec_field(
         None,
         description="PMI and acquisition debt state saved alongside the current repayment schedule after renewal.",
         core="Mortgage.renewal_state",
+    )
+    prepayment_privilege: MortgagePrepaymentPrivilege | None = spec_field(
+        None, description="Optional contract cap on lump sums.", core="Mortgage.prepayment_privilege"
     )
 
     start_year: Year | None = spec_field(
@@ -2963,23 +2963,23 @@ class MoveEvent(EventBase):
     new_rental: Rental | None = spec_field(None, description="A rental that starts now.")
 
 
-ClosingMoney = Annotated[Decimal, Field(ge=0, decimal_places=2, allow_inf_nan=False)]
+ClosingMoney = Annotated[NonNegativeMoney, Field(multiple_of=0.01, allow_inf_nan=False)]
 
 
 class HomeCashFunding(SpecModel):
     """Size a purchase from available bank cash after protecting cash and paying costs."""
 
     closing_costs: ClosingMoney = spec_field(description="Total cash cost of closing.", unit="USD")
-    cash_to_keep: ClosingMoney = spec_field(description="Bank cash to retain at closing.", unit="USD")
+    cash_floor: ClosingMoney = spec_field(description="Bank cash to retain at closing.", unit="USD")
     minimum_down_payment: ClosingMoney = spec_field(description="Minimum cash down payment.", unit="USD")
     mortgage_limit: ClosingMoney = spec_field(description="Maximum financing available at closing.", unit="USD")
     rate_pct: NonNegativePercent = spec_field(description="Mortgage APR for the new loan.", unit="percent")
     term_years: int = spec_field(description="Mortgage amortization in years.", unit="years", ge=1)
-    down_payment_fraction: Annotated[Decimal, Field(ge=0, le=1)] = spec_field(
-        Decimal(1), description="Share of available cash to put down after costs and retained cash (0 to 1)."
+    down_payment_fraction: float = spec_field(
+        1.0, description="Share of available cash to put down after costs and retained cash (0 to 1).", ge=0, le=1
     )
     extra_down_payment: ClosingMoney = spec_field(
-        Decimal(0), description="Cash to add to the chosen share, subject to available funds.", unit="USD"
+        0.0, description="Cash to add to the chosen share, subject to available funds.", unit="USD"
     )
 
 

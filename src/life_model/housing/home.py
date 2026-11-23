@@ -21,12 +21,6 @@ from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
 from .prepayment import MortgagePrepaymentPrivilege
 
-
-def _closing_costs(model: LifeModel, price: float, percent: float | None) -> float:
-    rate = model.config.housing.closing_cost_percent if percent is None else percent
-    return price * (rate / 100)
-
-
 if TYPE_CHECKING:
     from ..debt.bridge import DatedBridgeLine
 
@@ -34,6 +28,11 @@ if TYPE_CHECKING:
 def _bridge_draw_amount(gap: float) -> float:
     """Smallest whole-cent draw that covers the gap."""
     return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+
+
+def _closing_costs(model: LifeModel, price: float, percent: float | None) -> float:
+    rate = model.config.housing.closing_cost_percent if percent is None else percent
+    return price * (rate / 100)
 
 
 @dataclass(frozen=True)
@@ -672,8 +671,8 @@ class Mortgage(Loan):
         extra_principal_monthly: float = 0.0,
         schedule: str = "contract",
         rate_compounding: MortgageRateCompounding = "monthly",
-        prepayment_privilege: MortgagePrepaymentPrivilege | None = None,
         renewal_state: MortgageRenewalState | None = None,
+        prepayment_privilege: MortgagePrepaymentPrivilege | None = None,
     ):
         """Mortgage
 
@@ -1058,9 +1057,9 @@ class Mortgage(Loan):
         )
         self.quoted_rate_pct = rate_pct
         self.rate_compounding = "monthly"
-        self.prepayment_privilege = None  # A refinance creates a new loan with a new contract.
         self._renewal_baseline = None
         self._renewal_opening_payments = 0
+        self.prepayment_privilege = None  # A refinance creates a new loan with a new contract.
         return new_principal
 
     def _pay_cash_out(self, amount: float, cause: str) -> None:

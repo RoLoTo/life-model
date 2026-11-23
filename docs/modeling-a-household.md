@@ -56,6 +56,13 @@ Schedule `renew_mortgage` with the borrower's `person`, the `home` id, and an ef
 remaining amortization. Set `amortization_months` to change the payment count or
 `rate_compounding: semiannual` to use a semiannual quote. Renewal adds no fees or cash-out.
 
+A `savings_policy` can name one spendable opening bank account with `source_bank`. The
+`cash_floor` then applies to that account alone. If you omit `source_bank`, the floor applies
+across spendable bank accounts. The destination must also be an opening account. Optional
+`start_year` and `end_year` bound the actual transfer year, inclusively. Taxable destinations
+receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
+transfer year, up to that year's contribution room.
+
 Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
 `at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
 month's regular bills. Use the date on the mortgage contract. The engine accepts that date and
@@ -71,12 +78,21 @@ non-deductible financing expense, including interest on an automatic draw. Quali
 can count as acquisition debt up to the prior qualifying principal under U.S. rules.
 [IRS Publication 936](https://www.irs.gov/publications/p936)
 
+Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
+home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
+its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
+and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
+explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
+using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
+limit applies to principal. A sale of
+the collateral clears the bridge through the sale date before depositing the net proceeds.
+For same-day events that rely on one another, give them IDs that sort in the intended order.
+
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
 contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
 year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
 surplus (for example, `0.5` for half). Scheduled payments continue at the contracted amount.
-Enter only prepayments permitted under the mortgage contract.
 
 In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
 sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's
@@ -93,23 +109,6 @@ A `renew_mortgage` event keeps the same cap and usage by default. New `prepaymen
 start at zero usage and use the balance immediately before renewal as their default basis. Pass
 `prepayment_privilege: uncapped` to end the cap at renewal. A refinance starts a new loan and
 clears the previous cap.
-
-Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
-home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
-its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
-and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
-explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
-using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
-limit applies to principal. A sale of
-the collateral clears the bridge through the sale date before depositing the net proceeds.
-For same-day events that rely on one another, give them IDs that sort in the intended order.
-
-A `savings_policy` can name one spendable opening bank account with `source_bank`. The
-`cash_floor` then applies to that account alone. If you omit `source_bank`, the floor applies
-across spendable bank accounts. The destination must also be an opening account. Optional
-`start_year` and `end_year` bound the actual transfer year, inclusively. Taxable destinations
-receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
-transfer year, up to that year's contribution room.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
