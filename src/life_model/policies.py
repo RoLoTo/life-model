@@ -667,9 +667,12 @@ def _move_from_bank(
 ) -> float:
     from .account.bank import BankAccount
     from .account.brokerage import BrokerageAccount
+    from .account.cash_reserve import CashReserve
     from .account.fixed_income import FixedIncomeHolding
     from .base_classes import TaxAdvantagedAccount
 
+    if isinstance(account, CashReserve):
+        raise TypeError("Cash reserves are funded at creation")
     moved = 0.0
     banks = [
         b
