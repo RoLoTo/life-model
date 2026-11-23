@@ -1867,10 +1867,10 @@ class MortgagePrepaymentPrivilege(SpecModel):
             raise ValueError("A prepayment cap needs a basis amount when the original principal is unknown")
         return ContractPrepaymentPrivilege(
             anniversary=self.anniversary,
-            annual_limit_pct=Decimal(str(self.annual_limit_pct)),
-            basis_amount=Decimal(str(basis)),
+            annual_limit_pct=self.annual_limit_pct,
+            basis_amount=basis,
             as_of=as_of,
-            used=Decimal(str(self.used)),
+            used=self.used,
         )
 
 
