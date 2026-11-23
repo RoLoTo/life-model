@@ -2527,7 +2527,7 @@ class SavingsPolicy(SpecModel):
     CORE_CLASS = "SavingsPolicy"
 
     cash_floor: NonNegativeMoney = spec_field(
-        description="Cash kept in the person's (non-reserve) bank accounts.",
+        description="Cash kept in the named source bank, or across the person's non-reserve bank accounts.",
         unit="USD",
         core="SavingsPolicy.cash_floor",
     )
@@ -2536,6 +2536,25 @@ class SavingsPolicy(SpecModel):
         "within its room).",
         core="SavingsPolicy.sweep_to",
     )
+    source_bank: Identifier | None = spec_field(
+        None,
+        description="Opening bank account of the person that funds the sweep. It must be spendable.",
+        core="SavingsPolicy.source_bank",
+    )
+    start_year: Year | None = spec_field(
+        None, description="First transfer year, inclusive.", unit="year", core="SavingsPolicy.start_year"
+    )
+    end_year: Year | None = spec_field(
+        None, description="Last transfer year, inclusive.", unit="year", core="SavingsPolicy.end_year"
+    )
+
+    @model_validator(mode="after")
+    def _source_and_window(self) -> "SavingsPolicy":
+        if self.source_bank == self.sweep_to:
+            raise ValueError("A savings sweep needs distinct source and destination accounts")
+        if self.start_year is not None and self.end_year is not None and self.end_year < self.start_year:
+            raise ValueError("A savings sweep cannot end before it starts")
+        return self
 
 
 class RothConversion(SpecModel):

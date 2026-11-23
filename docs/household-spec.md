@@ -971,8 +971,11 @@ Builds: `SavingsPolicy`.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
-| `cash_floor` | number | USD | **required** | `SavingsPolicy.cash_floor` | Cash kept in the person's (non-reserve) bank accounts. |
+| `cash_floor` | number | USD | **required** | `SavingsPolicy.cash_floor` | Cash kept in the named source bank, or across the person's non-reserve bank accounts. |
 | `sweep_to` | string |  | **required** | `SavingsPolicy.sweep_to` | Account receiving the surplus (brokerage, fixed income, bank, or a tax-advantaged account within its room). |
+| `source_bank` | string (optional) |  | — | `SavingsPolicy.source_bank` | Opening bank account of the person that funds the sweep. It must be spendable. |
+| `start_year` | integer (optional) | year | — | `SavingsPolicy.start_year` | First transfer year, inclusive. |
+| `end_year` | integer (optional) | year | — | `SavingsPolicy.end_year` | Last transfer year, inclusive. |
 
 ## RothConversion
 
