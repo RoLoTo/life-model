@@ -29,7 +29,6 @@ Conventions (enforced by the field types and :mod:`life_model.spec.validate`):
 """
 
 from datetime import date
-from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -1785,9 +1784,6 @@ class HomeEquityLine(SpecModel):
         return self
 
 
-BridgeMoney = Annotated[float, Field(ge=0, multiple_of=0.01, allow_inf_nan=False)]
-
-
 class BridgeLine(SpecModel):
     """Approved credit secured by the borrower's home with simple actual-days/365 interest."""
 
@@ -1797,14 +1793,17 @@ class BridgeLine(SpecModel):
     id: Identifier | None = _id_field("debt")
     home: Identifier = spec_field(description="Id of the home securing the line.", core="DatedBridgeLine.home")
     name: str | None = spec_field(None, description="Display name.")
-    credit_limit: BridgeMoney = spec_field(description="Maximum drawn principal.", unit="USD")
+    credit_limit: NonNegativeMoney = spec_field(
+        description="Maximum drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
     rate_pct: NonNegativePercent = spec_field(description="Annual simple interest rate.", unit="percent")
-    drawn_principal: BridgeMoney = spec_field(0.0, description="Opening drawn principal.", unit="USD")
-    accrued_interest: Decimal = spec_field(
-        Decimal(0),
-        description="Opening unpaid interest at full accrual precision.",
+    drawn_principal: NonNegativeMoney = spec_field(
+        0.0, description="Opening drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
+    accrued_interest: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening unpaid interest, which can include fractional cents.",
         unit="USD",
-        ge=0,
         allow_inf_nan=False,
     )
     accrued_through: date | None = spec_field(None, description="Date through which opening interest was calculated.")
@@ -2729,6 +2728,13 @@ class Person(SpecModel):
     )
     jobs: list[Job] = spec_field(default_factory=list, description="Jobs (W-2).")
     accounts: list[Account] = spec_field(default_factory=list, description="Accounts, discriminated by 'kind'.")
+    unpaid_bills_debt: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening balance of unpaid bills carried into the first month's settlement.",
+        unit="USD",
+        core="Person.unpaid_bills_debt",
+        allow_inf_nan=False,
+    )
     debts: list[Debt] = spec_field(
         default_factory=list, description="Debts (car, student, credit_card, heloc, bridge_line)."
     )
@@ -3009,15 +3015,18 @@ class RefinanceEvent(EventBase):
 
 
 class MortgageMaturityEvent(EventBase):
-    """Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date."""
+    """Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller.
+
+    The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
+    """
 
     action: Literal["pay_mortgage_at_maturity"]
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     interest_due: NonNegativeMoney = spec_field(
         description="Lender's quoted interest due at payoff.", unit="USD", allow_inf_nan=False
     )
-    cash_to_keep: NonNegativeMoney = spec_field(
-        0.0, description="Minimum spendable bank cash to keep after payoff.", unit="USD", allow_inf_nan=False
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
     )
     bridge: Identifier | None = spec_field(
         None, description="Borrower's approved bridge line. Draw only the cash shortfall including the floor."
@@ -3055,14 +3064,18 @@ class DrawBridgeEvent(BridgeEvent):
     """Deposit a dated draw from approved secured credit into bank cash."""
 
     action: Literal["draw_bridge"]
-    amount: BridgeMoney = spec_field(description="Required draw.", unit="USD", gt=0)
+    amount: NonNegativeMoney = spec_field(
+        description="Required draw in whole cents.", unit="USD", gt=0, multiple_of=0.01, allow_inf_nan=False
+    )
 
 
 class RepayBridgeEvent(BridgeEvent):
-    """Repay the bridge's drawn principal and accrued interest from spendable bank cash."""
+    """Repay the bridge from spendable cash, carrying any gap as unpaid-bills debt."""
 
     action: Literal["repay_bridge"]
-    cash_to_keep: BridgeMoney = spec_field(0.0, description="Spendable cash floor after repayment.", unit="USD")
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable cash protected from repayment.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
 
 
 class DisabilityEvent(EventBase):

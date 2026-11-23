@@ -53,21 +53,23 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 
 Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
 `at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
-month's regular bills. The optional `cash_to_keep` is a minimum immediately after payoff. Funding
-comes from spendable bank cash, excluding emergency reserves. When relying on a same-day receipt,
+month's regular bills. Use the date on the mortgage contract. The engine accepts that date and
+bypasses prepayment caps and fees. The payoff follows the home's current owner and draws spendable
+bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
+`shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
-A cash shortfall stops the run before any payoff is posted.
 Set the payoff's optional `bridge` to a borrower-owned `bridge_line` id to cover that shortfall
 automatically. The draw is the smallest whole-cent amount that funds the payoff and preserves
-`cash_to_keep`. When available headroom is insufficient, the reported shortfall is the additional
+`cash_floor`. When available headroom is insufficient, the reported shortfall is the additional
 cash needed beyond that headroom. The mortgage and bridge stay as they were at the start of the event.
 
 Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
 home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
-its `amount` in spendable bank cash. A `repay_bridge` event pays the full principal and interest
-from that cash, with an optional `cash_to_keep` floor. Both events require an explicit calendar
-date. Interest accrues on drawn principal using actual days divided by 365. Outstanding
-interest counts toward liabilities, and the approved limit applies to principal. A sale of
+its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
+and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
+explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
+using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
+limit applies to principal. A sale of
 the collateral clears the bridge through the sale date before depositing the net proceeds.
 For same-day events that rely on one another, give them IDs that sort in the intended order.
 

@@ -136,6 +136,7 @@ Builds: `Person`.
 | `spending` | [Spending](#spending) (optional) |  | — |  | This person's living spending. Spending is per person and adds across the household: the household's budget is the sum of every person's amount_annual, so give the whole household budget on one spouse (and leave the other spouse's spending out, or 0) or split it between them, never the full budget on each. Required for a person without a spouse (relationships.marriages) whose spending holds the budget; a spouse who leaves it out spends nothing of their own. |
 | `jobs` | list[[Job](#job)] |  | [] |  | Jobs (W-2). |
 | `accounts` | list[one of: [BankAccount](#bankaccount), [FixedIncomeAccount](#fixedincomeaccount), [BrokerageAccount](#brokerageaccount), [Job401k](#job401k), [TraditionalIRA](#traditionalira), [RothIRA](#rothira), [HealthSavingsAccount](#healthsavingsaccount), [Plan529](#plan529), [InheritedPretaxAccount](#inheritedpretaxaccount), [Pension](#pension), [Annuity](#annuity), [DonorAdvisedFund](#donoradvisedfund), [Trust](#trust)] |  | [] |  | Accounts, discriminated by 'kind'. |
+| `unpaid_bills_debt` | number | USD | `0.0` | `Person.unpaid_bills_debt` | Opening balance of unpaid bills carried into the first month's settlement. |
 | `debts` | list[one of: [CarLoan](#carloan), [StudentLoan](#studentloan), [CreditCard](#creditcard), [HomeEquityLine](#homeequityline), [BridgeLine](#bridgeline)] |  | [] |  | Debts (car, student, credit_card, heloc, bridge_line). |
 | `housing` | list[one of: [Home](#home), [Rental](#rental)] |  | [] |  | Homes and rentals. |
 | `insurance` | list[one of: [LifeInsurance](#lifeinsurance), [GeneralInsurance](#generalinsurance)] |  | [] |  | Insurance policies. |
@@ -698,10 +699,10 @@ Builds: `DatedBridgeLine`.
 | `id` | string (optional) |  | — |  | Optional identifier for this debt, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
 | `home` | string |  | **required** | `DatedBridgeLine.home` | Id of the home securing the line. |
 | `name` | string (optional) |  | — |  | Display name. |
-| `credit_limit` | number | USD | **required** |  | Maximum drawn principal. |
+| `credit_limit` | number | USD | **required** |  | Maximum drawn principal in whole cents. |
 | `rate_pct` | number | percent | **required** |  | Annual simple interest rate. |
-| `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal. |
-| `accrued_interest` | Decimal | USD | `0` |  | Opening unpaid interest at full accrual precision. |
+| `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal in whole cents. |
+| `accrued_interest` | number | USD | `0.0` |  | Opening unpaid interest, which can include fractional cents. |
 | `accrued_through` | date (optional) |  | — |  | Date through which opening interest was calculated. |
 
 ## Home
@@ -1308,7 +1309,7 @@ Refinance a mortgage (``debt`` is the home's id) or a car or student loan: a new
 
 ## MortgageMaturityEvent
 
-Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date.
+Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller. The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1319,7 +1320,7 @@ Pay a mortgage's outstanding principal and quoted final interest from bank cash 
 | `action` | `"pay_mortgage_at_maturity"` |  | **required** |  |  |
 | `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
 | `interest_due` | number | USD | **required** |  | Lender's quoted interest due at payoff. |
-| `cash_to_keep` | number | USD | `0.0` |  | Minimum spendable bank cash to keep after payoff. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable bank cash protected from payoff withdrawals. |
 | `bridge` | string (optional) |  | — |  | Borrower's approved bridge line. Draw only the cash shortfall including the floor. |
 
 ## HelocDrawEvent
@@ -1349,11 +1350,11 @@ Deposit a dated draw from approved secured credit into bank cash.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
 | `action` | `"draw_bridge"` |  | **required** |  |  |
-| `amount` | number | USD | **required** |  | Required draw. |
+| `amount` | number | USD | **required** |  | Required draw in whole cents. |
 
 ## RepayBridgeEvent
 
-Repay the bridge's drawn principal and accrued interest from spendable bank cash.
+Repay the bridge from spendable cash, carrying any gap as unpaid-bills debt.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1363,7 +1364,7 @@ Repay the bridge's drawn principal and accrued interest from spendable bank cash
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
 | `action` | `"repay_bridge"` |  | **required** |  |  |
-| `cash_to_keep` | number | USD | `0.0` |  | Spendable cash floor after repayment. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable cash protected from repayment. |
 
 ## DisabilityEvent
 

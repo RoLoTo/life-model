@@ -247,6 +247,7 @@ class _Extractor:
             spending=self.spending(person.spending),
             jobs=jobs,
             accounts=_sorted(self.accounts(person, job_ids), ACCOUNT_KIND_ORDER),
+            unpaid_bills_debt=person.debt,
             debts=_sorted(self.debts(person, housing), DEBT_KIND_ORDER),
             housing=_sorted(housing, HOUSING_KIND_ORDER),
             insurance=_sorted(self.insurance(person), INSURANCE_KIND_ORDER),
@@ -885,7 +886,7 @@ class _Extractor:
                         credit_limit=line.credit_limit,
                         rate_pct=line.yearly_interest_rate,
                         drawn_principal=float(line.drawn_principal),
-                        accrued_interest=line.accrued_interest,
+                        accrued_interest=float(line.accrued_interest),
                         accrued_through=line.accrued_through,
                     )
                 )
@@ -1170,23 +1171,30 @@ class _Extractor:
             update: dict[str, Any] = {"at": at}
             if isinstance(source, s.RecurringExpenseEvent):
                 update["until"] = s.At(year=max(when[0] for when in dates[id(source)]))
+            if isinstance(source, s.MortgageMaturityEvent):
+                owner = next((p for p in self.people() if any(self.item_id(h) == source.home for h in p.homes)), None)
+                if owner is not None:
+                    update["person"] = self.pid(owner)
             retimed.append(source.model_copy(update=update))
         return retimed
 
     def events(self) -> list:
         from ..debt.bridge import DatedBridgeLine
 
-        closed = {
-            self.item_id(line) for line in self.model.agents if isinstance(line, DatedBridgeLine) and line.home.sold
-        }
-        events = [source for source in self.pending_sources() if not isinstance(source, s.Marriage)]
-        events = [event for event in events if not (isinstance(event, s.RepayBridgeEvent) and event.bridge in closed)]
-        events = [
-            event.model_copy(update={"bridge": None})
-            if isinstance(event, s.MortgageMaturityEvent) and event.bridge in closed
-            else event
-            for event in events
-        ]
+        lines = {self.item_id(line): line for line in self.model.agents if isinstance(line, DatedBridgeLine)}
+        events: list[s.Event] = []
+        for source in self.pending_sources():
+            if isinstance(source, s.Marriage):
+                continue
+            if isinstance(source, s.BridgeEvent) and (line := lines.get(source.bridge)) is not None:
+                if line.home.sold or line.person.is_deceased:
+                    continue
+                source = source.model_copy(update={"person": self.pid(line.person)})
+            if isinstance(source, s.MortgageMaturityEvent):
+                bridge = lines.get(source.bridge)
+                if bridge is not None and bridge.home.sold:
+                    source = source.model_copy(update={"bridge": None})
+            events.append(source)
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
 

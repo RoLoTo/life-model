@@ -757,18 +757,18 @@ class Mortgage(Loan):
             self.grandfathered_cap = self.principal
 
     def pay_at_maturity(
-        self, when: date, *, interest_due: float, cash_to_keep: float = 0.0, bridge: "DatedBridgeLine | None" = None
+        self, when: date, *, interest_due: float, cash_floor: float = 0.0, bridge: "DatedBridgeLine | None" = None
     ) -> None:
-        """Discharge the live principal and the lender's quoted final interest from bank cash.
+        """Discharge the live principal and quoted final interest before scheduled bills.
 
-        When an approved bridge is supplied, draw only the whole cents needed to fund the payoff
-        and retain the cash floor. Raise MortgagePayoffShortfall before moving any money when
-        cash and available credit cannot cover both. Use the month's events stage before bills.
+        Draw spendable cash above the floor. A cash-only payoff carries any unpaid amount as debt
+        due next month. With an approved bridge, draw only the whole cents needed and require
+        sufficient headroom before moving money.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
-        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_to_keep)):
-            raise ValueError("Final interest and cash to keep must be finite and non-negative")
+        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_floor)):
+            raise ValueError("Final interest and cash floor must be finite and non-negative")
         if self.principal <= 0:
             return
         person = self.person
@@ -776,32 +776,40 @@ class Mortgage(Loan):
             raise ValueError("The borrower must own the approved bridge line")
         principal = self.principal
         payoff = principal + interest_due
-        bank_cash = person.usable_bank_balance
-        gap = snap_money(payoff + cash_to_keep - bank_cash)
         bridge_draw = 0.0
-        if gap > 0:
-            capacity = bridge.get_available_credit() if bridge is not None else 0.0
-            required = _bridge_draw_amount(gap) if bridge is not None else gap
-            if bridge is None or required > capacity:
-                raise MortgagePayoffShortfall(
-                    when=when,
-                    payoff=payoff,
-                    bank_cash=bank_cash,
-                    cash_to_keep=cash_to_keep,
-                    bridge_credit=capacity if bridge is not None else None,
-                )
-            bridge_draw = bridge.draw(required, when=when)
+        if bridge is not None:
+            bank_cash = person.usable_bank_balance
+            gap = snap_money(payoff + cash_floor - bank_cash)
+            if gap > 0:
+                capacity = bridge.get_available_credit()
+                required = _bridge_draw_amount(gap)
+                if required > capacity:
+                    raise MortgagePayoffShortfall(
+                        when=when,
+                        payoff=payoff,
+                        bank_cash=bank_cash,
+                        cash_to_keep=cash_floor,
+                        bridge_credit=capacity,
+                    )
+                bridge_draw = bridge.draw(required, when=when)
 
-        person.deduct_from_bank_accounts(
-            principal, kind=FlowKind.HOUSING, to_account=self, cause="mortgage payoff principal", include_reserve=False
-        )
-        person.deduct_from_bank_accounts(
-            interest_due,
-            kind=FlowKind.HOUSING,
-            sink="mortgage interest",
-            cause="mortgage payoff interest",
-            include_reserve=False,
-        )
+        cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
+        shortfall = 0.0
+        for amount, account, sink, cause in (
+            (principal, self, None, "mortgage payoff principal"),
+            (interest_due, None, "mortgage interest", "mortgage payoff interest"),
+        ):
+            cash_requested = min(amount, cash_available)
+            undrawn = person.deduct_from_bank_accounts(
+                cash_requested, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, include_reserve=False
+            )
+            cash_paid = cash_requested - undrawn
+            cash_available = max(0.0, snap_money(cash_available - cash_paid))
+            unpaid = snap_money(amount - cash_paid)
+            person.add_debt(
+                unpaid, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, defer_until_next_month=True
+            )
+            shortfall += unpaid
         self._month_start_balances.append(principal)
         self.principal = 0.0
         self.payments_made += 1
@@ -819,7 +827,8 @@ class Mortgage(Loan):
             date=when.isoformat(),
             principal=principal,
             interest_due=interest_due,
-            cash_to_keep=cash_to_keep,
+            cash_floor=cash_floor,
+            shortfall_debt=snap_money(shortfall),
         )
         if bridge is not None:
             event.details["bridge_draw"] = bridge_draw

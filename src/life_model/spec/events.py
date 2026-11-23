@@ -276,7 +276,7 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
 
     if action == "pay_mortgage_at_maturity":
         name = _name(event, f"{person.name} pays off the mortgage at maturity")
-        return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, person, event)]
+        return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, event)]
 
     if action == "heloc_draw":
         name = _name(event, f"{person.name} draws ${event.amount:,.0f} on a home equity line")
@@ -284,7 +284,7 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
 
     if action in ("draw_bridge", "repay_bridge"):
         name = _name(event, f"{person.name}: {action.replace('_', ' ')}")
-        return [_life_event(year, name, event, _bridge_transaction, builder, person, event)]
+        return [_life_event(year, name, event, _bridge_transaction, builder, event)]
 
     if action == "convert_to_roth":
         what = (
@@ -460,18 +460,19 @@ def _refinance(builder: "_Builder", event: s.RefinanceEvent) -> None:
     loan.refinance(event.rate_pct, **kwargs)
 
 
-def _pay_mortgage_at_maturity(builder: "_Builder", person, event: s.MortgageMaturityEvent) -> None:
+def _pay_mortgage_at_maturity(builder: "_Builder", event: s.MortgageMaturityEvent) -> None:
     from datetime import date
 
     from ..housing.home import Home
 
     home = builder.built.items.get(event.home)
-    if not isinstance(home, Home) or home.person is not person or home.mortgage is None:
-        raise ValueError("Mortgage payoff needs an existing mortgage on the borrower's home")
+    if not isinstance(home, Home) or home.sold or home.person.is_deceased or home.mortgage is None:
+        builder.model.event_log.add(Event(f"mortgage payoff skipped: {event.home} has no active homeowner mortgage"))
+        return
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
-    bridge = _owned_bridge(builder, person, event.bridge) if event.bridge is not None else None
-    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_to_keep=event.cash_to_keep, bridge=bridge)
+    bridge = _owned_bridge(builder, home.person, event.bridge) if event.bridge is not None else None
+    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_floor=event.cash_floor, bridge=bridge)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:
@@ -487,16 +488,21 @@ def _owned_bridge(builder: "_Builder", person, bridge_id: str):
     return line
 
 
-def _bridge_transaction(builder: "_Builder", person, event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
+def _bridge_transaction(builder: "_Builder", event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
     from datetime import date
 
-    line = _owned_bridge(builder, person, event.bridge)
+    from ..debt.bridge import DatedBridgeLine
+
+    line = builder.built.items.get(event.bridge)
+    if not isinstance(line, DatedBridgeLine) or line.home.sold or line.person.is_deceased:
+        builder.model.event_log.add(Event(f"bridge transaction skipped: {event.bridge} has no active borrower"))
+        return
     assert event.at.year is not None and event.at.month is not None and event.at.day is not None
     when = date(event.at.year, event.at.month, event.at.day)
     if isinstance(event, s.DrawBridgeEvent):
         line.draw(event.amount, when=when)
     else:
-        line.repay(when, cash_to_keep=event.cash_to_keep)
+        line.repay(when, cash_floor=event.cash_floor)
 
 
 def _disability(person) -> None:
