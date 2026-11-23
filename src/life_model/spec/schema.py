@@ -2744,6 +2744,13 @@ class Person(SpecModel):
     )
     jobs: list[Job] = spec_field(default_factory=list, description="Jobs (W-2).")
     accounts: list[Account] = spec_field(default_factory=list, description="Accounts, discriminated by 'kind'.")
+    unpaid_bills_debt: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening balance of unpaid bills carried into the first month's settlement.",
+        unit="USD",
+        core="Person.unpaid_bills_debt",
+        allow_inf_nan=False,
+    )
     debts: list[Debt] = spec_field(default_factory=list, description="Debts (car, student, credit_card, heloc).")
     housing: list[Housing] = spec_field(default_factory=list, description="Homes and rentals.")
     insurance: list[Insurance] = spec_field(default_factory=list, description="Insurance policies.")
@@ -3050,6 +3057,28 @@ class MortgageRenewalEvent(EventBase):
         return self
 
 
+class MortgageMaturityEvent(EventBase):
+    """Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller.
+
+    The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
+    """
+
+    action: Literal["pay_mortgage_at_maturity"]
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    interest_due: NonNegativeMoney = spec_field(
+        description="Lender's quoted interest due at payoff.", unit="USD", allow_inf_nan=False
+    )
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def _full_date(self) -> "MortgageMaturityEvent":
+        if self.at.day is None:
+            raise ValueError("A mortgage maturity payoff requires a full calendar date")
+        return self
+
+
 class HelocDrawEvent(EventBase):
     """Draw on a home equity line: to the bank, or spent on improvements to the home securing it."""
 
@@ -3100,6 +3129,7 @@ Event = Annotated[
     | DieEvent
     | RefinanceEvent
     | MortgageRenewalEvent
+    | MortgageMaturityEvent
     | HelocDrawEvent
     | DisabilityEvent,
     Field(discriminator="action"),
@@ -3126,6 +3156,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "die",
     "refinance",
     "renew_mortgage",
+    "pay_mortgage_at_maturity",
     "heloc_draw",
     "disability",
 )

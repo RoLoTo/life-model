@@ -457,6 +457,7 @@ class _Builder:
             residency=[tuple(entry) for entry in p.residency] if p.residency else None,
             widowed_year=p.widowed_year,
             estimated_payments=_estimated_payments(p.estimated_payments),
+            unpaid_bills_debt=p.unpaid_bills_debt,
         )
         person.spec_id = p.id
         self.built.people[p.id] = person

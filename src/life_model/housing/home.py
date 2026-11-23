@@ -13,7 +13,7 @@ from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis, scheduled_balance
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind
-from ..model import Event, EventKind, LifeModel, LifeModelAgent
+from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
@@ -747,6 +747,61 @@ class Mortgage(Loan):
             self._renewal_opening_payments = self.payments_made
         elif self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
+
+    def pay_at_maturity(self, when: date, *, interest_due: float, cash_floor: float = 0.0) -> None:
+        """Discharge the live principal and quoted final interest before scheduled bills.
+
+        Draw spendable cash above the floor and carry any unpaid amount as debt due next month.
+        The caller supplies the maturity date and lender's final interest.
+        """
+        if (when.year, when.month) != (self.model.year, self.model.month):
+            raise ValueError("A mortgage payoff must execute in its scheduled month")
+        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_floor)):
+            raise ValueError("Final interest and cash floor must be finite and non-negative")
+        if self.principal <= 0:
+            return
+        person = self.person
+        principal = self.principal
+        payoff = principal + interest_due
+        cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
+        shortfall = 0.0
+        for amount, account, sink, cause in (
+            (principal, self, None, "mortgage payoff principal"),
+            (interest_due, None, "mortgage interest", "mortgage payoff interest"),
+        ):
+            cash_requested = min(amount, cash_available)
+            undrawn = person.deduct_from_bank_accounts(
+                cash_requested, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, include_reserve=False
+            )
+            cash_paid = cash_requested - undrawn
+            cash_available = max(0.0, snap_money(cash_available - cash_paid))
+            unpaid = snap_money(amount - cash_paid)
+            person.add_debt(
+                unpaid, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, defer_until_next_month=True
+            )
+            shortfall += unpaid
+        self._month_start_balances.append(principal)
+        self.principal = 0.0
+        self.payments_made += 1
+        self.stat_principal_payment_history.append(principal)
+        self.stat_interest_payment_history.append(interest_due)
+        self._record_month(principal, interest_due)
+        person.stat_housing_costs = snap_money(person.stat_housing_costs + payoff)
+        person.stat_interest_paid = snap_money(person.stat_interest_paid + interest_due)
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_PAID_AT_MATURITY,
+                person=person,
+                account=self,
+                amount=payoff,
+                cause="mortgage payoff",
+                date=when.isoformat(),
+                principal=principal,
+                interest_due=interest_due,
+                cash_floor=cash_floor,
+                shortfall_debt=snap_money(shortfall),
+            )
+        )
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
 

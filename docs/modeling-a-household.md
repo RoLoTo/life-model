@@ -63,6 +63,14 @@ across spendable bank accounts. The destination must also be an opening account.
 receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
 transfer year, up to that year's contribution room.
 
+Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
+`at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the
+month's regular bills. Use the date on the mortgage contract. The engine accepts that date and
+bypasses prepayment caps and fees. The payoff follows the home's current owner and draws spendable
+bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
+`shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
+give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked

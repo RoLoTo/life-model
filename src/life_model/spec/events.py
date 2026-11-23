@@ -270,6 +270,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         name = _name(event, f"{person.name} renews the mortgage at {event.rate_pct:g}%")
         return [_life_event(year, name, event, _renew_mortgage, builder, event)]
 
+    if action == "pay_mortgage_at_maturity":
+        name = _name(event, f"{person.name} pays off the mortgage at maturity")
+        return [_life_event(year, name, event, _pay_mortgage_at_maturity, builder, event)]
+
     if action == "heloc_draw":
         name = _name(event, f"{person.name} draws ${event.amount:,.0f} on a home equity line")
         return [_life_event(year, name, event, _heloc_draw, builder, event)]
@@ -457,6 +461,20 @@ def _renew_mortgage(builder: "_Builder", event: s.MortgageRenewalEvent) -> None:
         rate_compounding=event.rate_compounding,
         amortization_months=event.amortization_months,
     )
+
+
+def _pay_mortgage_at_maturity(builder: "_Builder", event: s.MortgageMaturityEvent) -> None:
+    from datetime import date
+
+    from ..housing.home import Home
+
+    home = builder.built.items.get(event.home)
+    if not isinstance(home, Home) or home.sold or home.person.is_deceased or home.mortgage is None:
+        builder.model.event_log.add(Event(f"mortgage payoff skipped: {event.home} has no active homeowner mortgage"))
+        return
+    assert event.at.year is not None and event.at.month is not None and event.at.day is not None
+    when = date(event.at.year, event.at.month, event.at.day)
+    home.mortgage.pay_at_maturity(when, interest_due=event.interest_due, cash_floor=event.cash_floor)
 
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:

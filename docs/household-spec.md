@@ -35,7 +35,7 @@ error: put what already happened into the starting state (for example a marriage
 
 ## Event actions
 
-`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `heloc_draw`, `disability`.
+`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `heloc_draw`, `disability`.
 
 ## HouseholdSpec
 
@@ -49,7 +49,7 @@ A complete household: metadata, optional economy overrides, people, relationship
 | `people` | list[[Person](#person)] |  | **required** |  | The people in the household (one family). |
 | `relationships` | [Relationships](#relationships) |  | {} |  | Marriages. |
 | `withdrawal_order` | list[`"bank"` \\| `"fixed_income"` \\| `"brokerage"` \\| `"roth_basis"` \\| `"pretax"` \\| `"roth_earnings"` \\| `"reserve"`] (optional) |  | — | `Family.withdrawal_order` | Household payment waterfall: the order sources are drawn to pay bills and taxes, across every member. Each source exactly once, starting with 'bank'. Defaults to bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve (fixed_income and reserve may be left out: they then take those places). |
-| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
+| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
 | `actuals` | map[integer → [ActualRecords](#actualrecords)] (optional) |  | — |  | What the household's real documents say, by tax year (filed 1040 lines, W-2s, 1099s, statement balances): read by 'life-model reconcile' and the backtest, ignored by the builder. Keep real documents in my-models/ (git-ignored). |
 
 ## Meta
@@ -136,6 +136,7 @@ Builds: `Person`.
 | `spending` | [Spending](#spending) (optional) |  | — |  | This person's living spending. Spending is per person and adds across the household: the household's budget is the sum of every person's amount_annual, so give the whole household budget on one spouse (and leave the other spouse's spending out, or 0) or split it between them, never the full budget on each. Required for a person without a spouse (relationships.marriages) whose spending holds the budget; a spouse who leaves it out spends nothing of their own. |
 | `jobs` | list[[Job](#job)] |  | [] |  | Jobs (W-2). |
 | `accounts` | list[one of: [BankAccount](#bankaccount), [FixedIncomeAccount](#fixedincomeaccount), [BrokerageAccount](#brokerageaccount), [Job401k](#job401k), [TraditionalIRA](#traditionalira), [RothIRA](#rothira), [HealthSavingsAccount](#healthsavingsaccount), [Plan529](#plan529), [InheritedPretaxAccount](#inheritedpretaxaccount), [Pension](#pension), [Annuity](#annuity), [DonorAdvisedFund](#donoradvisedfund), [Trust](#trust)] |  | [] |  | Accounts, discriminated by 'kind'. |
+| `unpaid_bills_debt` | number | USD | `0.0` | `Person.unpaid_bills_debt` | Opening balance of unpaid bills carried into the first month's settlement. |
 | `debts` | list[one of: [CarLoan](#carloan), [StudentLoan](#studentloan), [CreditCard](#creditcard), [HomeEquityLine](#homeequityline)] |  | [] |  | Debts (car, student, credit_card, heloc). |
 | `housing` | list[one of: [Home](#home), [Rental](#rental)] |  | [] |  | Homes and rentals. |
 | `insurance` | list[one of: [LifeInsurance](#lifeinsurance), [GeneralInsurance](#generalinsurance)] |  | [] |  | Insurance policies. |
@@ -1325,6 +1326,21 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | `rate_pct` | number | percent | **required** |  | New quoted annual rate. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted annual rate. |
 | `amortization_months` | integer (optional) | months | — |  | Number of new monthly payments. By default, keep the scheduled number of payments remaining. |
+
+## MortgageMaturityEvent
+
+Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller. The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
+| `at` | [At](#at) |  | **required** |  | When the event happens: {year}, {age} or {relative: {after, years}}. |
+| `person` | string |  | **required** |  | Person the event applies to. |
+| `name` | string (optional) |  | — |  | Description shown in the event list. |
+| `action` | `"pay_mortgage_at_maturity"` |  | **required** |  |  |
+| `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
+| `interest_due` | number | USD | **required** |  | Lender's quoted interest due at payoff. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable bank cash protected from payoff withdrawals. |
 
 ## HelocDrawEvent
 
