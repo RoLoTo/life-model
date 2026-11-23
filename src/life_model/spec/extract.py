@@ -886,7 +886,7 @@ class _Extractor:
                         credit_limit=line.credit_limit,
                         rate_pct=line.yearly_interest_rate,
                         drawn_principal=float(line.drawn_principal),
-                        accrued_interest=line.accrued_interest,
+                        accrued_interest=float(line.accrued_interest),
                         accrued_through=line.accrued_through,
                     )
                 )
@@ -1181,11 +1181,16 @@ class _Extractor:
     def events(self) -> list:
         from ..debt.bridge import DatedBridgeLine
 
-        closed = {
-            self.item_id(line) for line in self.model.agents if isinstance(line, DatedBridgeLine) and line.home.sold
-        }
-        events = [source for source in self.pending_sources() if not isinstance(source, s.Marriage)]
-        events = [event for event in events if not (isinstance(event, s.RepayBridgeEvent) and event.bridge in closed)]
+        lines = {self.item_id(line): line for line in self.model.agents if isinstance(line, DatedBridgeLine)}
+        events: list[s.Event] = []
+        for source in self.pending_sources():
+            if isinstance(source, s.Marriage):
+                continue
+            if isinstance(source, s.BridgeEvent) and (line := lines.get(source.bridge)) is not None:
+                if line.home.sold or line.person.is_deceased:
+                    continue
+                source = source.model_copy(update={"person": self.pid(line.person)})
+            events.append(source)
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
 

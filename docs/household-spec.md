@@ -699,10 +699,10 @@ Builds: `DatedBridgeLine`.
 | `id` | string (optional) |  | — |  | Optional identifier for this debt, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
 | `home` | string |  | **required** | `DatedBridgeLine.home` | Id of the home securing the line. |
 | `name` | string (optional) |  | — |  | Display name. |
-| `credit_limit` | number | USD | **required** |  | Maximum drawn principal. |
+| `credit_limit` | number | USD | **required** |  | Maximum drawn principal in whole cents. |
 | `rate_pct` | number | percent | **required** |  | Annual simple interest rate. |
-| `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal. |
-| `accrued_interest` | Decimal | USD | `0` |  | Opening unpaid interest at full accrual precision. |
+| `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal in whole cents. |
+| `accrued_interest` | number | USD | `0.0` |  | Opening unpaid interest, which can include fractional cents. |
 | `accrued_through` | date (optional) |  | — |  | Date through which opening interest was calculated. |
 
 ## Home
@@ -1349,11 +1349,11 @@ Deposit a dated draw from approved secured credit into bank cash.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
 | `action` | `"draw_bridge"` |  | **required** |  |  |
-| `amount` | number | USD | **required** |  | Required draw. |
+| `amount` | number | USD | **required** |  | Required draw in whole cents. |
 
 ## RepayBridgeEvent
 
-Repay the bridge's drawn principal and accrued interest from spendable bank cash.
+Repay the bridge from spendable cash, carrying any gap as unpaid-bills debt.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1363,7 +1363,7 @@ Repay the bridge's drawn principal and accrued interest from spendable bank cash
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `bridge` | string |  | **required** |  | Id of the borrower's approved bridge line. |
 | `action` | `"repay_bridge"` |  | **required** |  |  |
-| `cash_to_keep` | number | USD | `0.0` |  | Spendable cash floor after repayment. |
+| `cash_floor` | number | USD | `0.0` |  | Spendable cash protected from repayment. |
 
 ## DisabilityEvent
 
