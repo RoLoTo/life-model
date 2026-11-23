@@ -36,22 +36,6 @@ def _bridge_draw_amount(gap: float) -> float:
     return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
 
 
-class MortgagePayoffShortfall(ValueError):
-    """Additional spendable bank cash required to discharge a mortgage on its due date."""
-
-    def __init__(
-        self, *, when: date, payoff: float, bank_cash: float, cash_to_keep: float, bridge_credit: float | None = None
-    ):
-        self.when = when
-        self.payoff = payoff
-        self.bank_cash = bank_cash
-        self.cash_to_keep = cash_to_keep
-        self.bridge_credit = bridge_credit
-        gap = snap_money(payoff + cash_to_keep - bank_cash)
-        self.amount = gap if bridge_credit is None else snap_money(_bridge_draw_amount(gap) - bridge_credit)
-        super().__init__(f"Mortgage payoff on {when.isoformat()} needs {self.amount:,.2f} in additional bank cash")
-
-
 @dataclass(frozen=True)
 class MortgageRenewalState:
     """The PMI schedule and acquisition debt limits carried through a renewal."""
@@ -812,9 +796,8 @@ class Mortgage(Loan):
     ) -> None:
         """Discharge the live principal and quoted final interest before scheduled bills.
 
-        Draw spendable cash above the floor. A cash-only payoff carries any unpaid amount as debt
-        due next month. With an approved bridge, draw only the whole cents needed and require
-        sufficient headroom before moving money.
+        An approved bridge draws up to the lesser of the whole cents needed and available credit.
+        Draw spendable cash above the floor and carry any remaining gap as debt due next month.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
@@ -829,20 +812,13 @@ class Mortgage(Loan):
         payoff = principal + interest_due
         bridge_draw = 0.0
         if bridge is not None:
+            bank = person.primary_bank_account
             bank_cash = person.usable_bank_balance
             gap = snap_money(payoff + cash_floor - bank_cash)
-            if gap > 0:
-                capacity = bridge.get_available_credit()
-                required = _bridge_draw_amount(gap)
-                if required > capacity:
-                    raise MortgagePayoffShortfall(
-                        when=when,
-                        payoff=payoff,
-                        bank_cash=bank_cash,
-                        cash_to_keep=cash_floor,
-                        bridge_credit=capacity,
-                    )
-                bridge_draw = bridge.draw(required, when=when)
+            if gap > 0 and bank is not None and not bank.reserve:
+                requested = min(_bridge_draw_amount(gap), bridge.get_available_credit())
+                if requested > 0:
+                    bridge_draw = bridge.draw(requested, when=when)
 
         cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
         shortfall = 0.0
@@ -1151,10 +1127,12 @@ def qualified_residence_interest(person: Person) -> float:
     limit, the interest is scaled by limit / balance (Pub. 936's worksheet with average balances).
     Interest on home-equity debt not used for the home is not deductible.
     """
+    from ..debt.bridge import DatedBridgeLine
+
     federal = person.model.year_config.tax.federal
     share = 0.5 if person.filing_status == FilingStatus.MARRIED_FILING_SEPARATELY else 1.0
     debts = [home.mortgage for home in person.homes if getattr(home, "mortgage", None) is not None]
-    debts += list(person.home_equity_lines)
+    debts += [line for line in person.home_equity_lines if not isinstance(line, DatedBridgeLine)]
     interest = acquisition = grandfathered = 0.0
     for debt in debts:
         debt_interest = debt.interest_paid_this_year
