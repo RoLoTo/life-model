@@ -26,6 +26,7 @@ limit (the child's own return is not modeled).
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -966,13 +967,24 @@ class _SpecChecker:
                 )
         policy = p.savings_policy
         if policy is not None:
-            account = accounts.get(policy.sweep_to)
+            opening_accounts = {account.id: account for account in p.accounts if account.id is not None}
+            account = opening_accounts.get(policy.sweep_to)
             if account is None:
                 self.error(
                     f"{path}.savings_policy.sweep_to", f"unknown account {policy.sweep_to!r}", code="unknown_reference"
                 )
             elif account.kind not in ("brokerage", "fixed_income", "bank", "traditional_ira", "roth_ira", "hsa", "529"):
                 self.error(f"{path}.savings_policy.sweep_to", f"cannot sweep cash into a {account.kind} account.")
+            if policy.source_bank is not None:
+                source = opening_accounts.get(policy.source_bank)
+                if source is None:
+                    self.error(
+                        f"{path}.savings_policy.source_bank",
+                        f"unknown opening account {policy.source_bank!r} for {p.name}",
+                        code="unknown_reference",
+                    )
+                elif not isinstance(source, s.BankAccount) or source.reserve:
+                    self.error(f"{path}.savings_policy.source_bank", "the source must be a non-reserve bank account.")
         rc = p.roth_conversion
         if rc is not None:
             self.check_conversion_refs(accounts, rc.source, rc.target, f"{path}.roth_conversion")
@@ -1077,7 +1089,7 @@ class _SpecChecker:
         if isinstance(account, s.Annuity) and account.joint_annuitant is not None:
             self.check_person_ref(account.joint_annuitant, f"{path}.joint_annuitant")
 
-    def check_loan(self, m, path: str, *, as_of: tuple[int, int] | None = None) -> bool:
+    def check_loan(self, m, path: str, *, as_of: tuple[int, int] | None = None, rate_pct: float | None = None) -> bool:
         """Resolve a loan's statement inputs like the builder does; an inconsistency is an error naming the
         field. Returns True when the loan resolved."""
         from ..debt.terms import LoanTermsError, resolve_loan_terms
@@ -1099,7 +1111,7 @@ class _SpecChecker:
             origination = f"{start_year}-01"
         try:
             resolve_loan_terms(
-                rate_pct=m.rate_pct,
+                rate_pct=m.rate_pct if rate_pct is None else rate_pct,
                 as_of=as_of or (self.start, self.start_month),
                 original_amount=m.original_amount,
                 term_months=term,
@@ -1119,13 +1131,16 @@ class _SpecChecker:
         return True
 
     def check_mortgage(self, m: s.Mortgage, path: str, *, as_of: tuple[int, int] | None = None) -> None:
-        if not self.check_loan(m, path, as_of=as_of):
+        from ..debt.terms import mortgage_rate_on_monthly_basis
+
+        rate_pct = mortgage_rate_on_monthly_basis(m.rate_pct, m.rate_compounding)
+        if not self.check_loan(m, path, as_of=as_of, rate_pct=rate_pct):
             return
         if m.original_amount is None or m.term_years is None or m.origination is not None:
             return  # statement inputs: resolved (and checked) above
         origin = m.start_year if m.start_year is not None else self.start
         elapsed = self.start - origin
-        payment = _amortized_payment(m.original_amount, m.rate_pct, m.term_years)
+        payment = _amortized_payment(m.original_amount, rate_pct, m.term_years)
         if origin > self.start:
             self.warn(
                 f"{path}.start_year",
@@ -1151,7 +1166,7 @@ class _SpecChecker:
                 "mortgage_inconsistent",
             )
             return
-        expected = _remaining_balance(m.original_amount, m.rate_pct, m.term_years, elapsed * 12)
+        expected = _remaining_balance(m.original_amount, rate_pct, m.term_years, elapsed * 12)
         if m.balance is None and m.payments_made is None:
             self.warn(
                 f"{path}.start_year",
@@ -1216,6 +1231,17 @@ class _SpecChecker:
             return None
         base = self.resolve(anchor.at, anchor.person, by_id, (*stack, relative.after))
         return None if base is None else base + relative.years
+
+    @staticmethod
+    def _starts_on_leap_day(event: s.EventBase, by_id: Mapping[str, s.EventBase]) -> bool:
+        """Find February 29 through same-year, same-month relative anchors."""
+        at = event.at
+        while at.relative is not None and at.relative.years == 0 and at.month in (None, 2):
+            anchor = by_id.get(at.relative.after)
+            if anchor is None:
+                return False
+            at = anchor.at
+        return at.month == 2 and at.day == 29
 
     def check_events(self) -> None:
         by_id = {e.id: e for e in self.spec.events if e.id is not None}
@@ -1325,12 +1351,26 @@ class _SpecChecker:
                     self.check_conversion_refs(
                         self._person_accounts(self.people[event.person]), event.source, event.target, path
                     )
-            if isinstance(event, s.RecurringExpenseEvent) and event.until is not None:
-                if event.until.day is not None:
-                    self.error(f"{path}.until.day", "'until' selects the last year of the recurring expense.")
-                last = self.resolve(event.until, event.person, by_id)
-                if year is not None and last is not None and last < year:
-                    self.error(f"{path}.until", f"'until' ({last}) is before 'at' ({year}).")
+            if isinstance(event, s.RecurringExpenseEvent):
+                last: int | None = self.end
+                if event.until is not None:
+                    if event.until.day is not None:
+                        self.error(f"{path}.until.day", "'until' selects the last year of the recurring expense.")
+                    last = self.resolve(event.until, event.person, by_id)
+                    if year is not None and last is not None and last < year:
+                        self.error(f"{path}.until", f"'until' ({last}) is before 'at' ({year}).")
+                if (
+                    year is not None
+                    and last is not None
+                    and min(last, self.end) > year
+                    and self._starts_on_leap_day(event, by_id)
+                ):
+                    self.error(
+                        f"{path}.at",
+                        f"The recurring expense cannot repeat in {year + 1}: {year + 1} has no February 29.",
+                        "Choose a day that occurs every year, or end the recurrence in the starting year.",
+                        "invalid_recurrence_day",
+                    )
             if isinstance(event, s.ClaimSocialSecurityEvent):
                 person = self.people.get(event.person)
                 if person is not None and person.social_security is None:

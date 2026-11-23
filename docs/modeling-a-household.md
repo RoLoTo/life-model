@@ -39,7 +39,7 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 | Brokerage statement | `kind: brokerage` with `lots` (`value`, `cost_basis`, `acquired_year`) or a single `balance`; `joint: true` for a joint account |
 | Recurring contributions (a 529 from checking, an IRA) | `contribution_plans[]`: `account`, `amount_annual` / `pay_pct` / `max_out`, `start`, `end` or `until_age` (a 529 for a child stops the month before college unless `end` says otherwise); `stop_contribution` / `change_contribution` events |
 | IRA / HSA / 529 statements | `kind: traditional_ira`, `roth_ira`, `hsa`, `529` |
-| Mortgage statement | `housing[]` `kind: home`: `purchase_price`, `current_value`, `cost_basis`, `purchase_year`, `mortgage` (`original_amount`, `rate_pct`, `term_years`, and `origination: YYYY-MM`, or the current `balance` with `remaining_months`; `payment_monthly` with `escrow_monthly` when the statement payment includes escrow), `pmi`/`pmi_monthly`, `expenses` (property tax as `property_tax_annual` or % of an `assessed_value`, `insurance_annual`, maintenance, HOA) |
+| Mortgage statement | `housing[]` `kind: home`: `purchase_price`, `current_value`, `cost_basis`, `purchase_year`, `mortgage` (`original_amount`, `rate_pct`, `term_years`, and `origination: YYYY-MM`, or the current `balance` with `remaining_months`; `payment_monthly` with `escrow_monthly` when the statement payment includes escrow, and `rate_compounding: semiannual` if the quoted annual rate compounds twice a year), `pmi`/`pmi_monthly`, `expenses` (property tax as `property_tax_annual` or % of an `assessed_value`, `insurance_annual`, maintenance, HOA) |
 | Lease | `kind: rental`: `rent_monthly`, `rent_growth_pct` |
 | Loan statements | `debts[]` `kind: car`, `student`, `credit_card`, `heloc`: `rate_pct` (APR), then the statement's terms (`original_amount` with `term_months`/`term_years` and `origination`, or the current `balance` with `remaining_months`), `extra_principal_monthly`; `schedule: statement` when the balance is above what the original terms leave (late payments, a deferral); a student loan's `loan_type` (leave it unset when the statement does not say); a student loan's `deferment_until` and `qualifying_payments`; a card's `spending_charged_pct`; a HELOC's `home`, `improvement_balance` |
 | Insurance declarations | `insurance[]` `kind: life` (term/whole; an existing policy's `issue_year`, `cash_value`, `loan_balance`) or a general policy (`health` with `deductible`, `coinsurance_pct`, `oop_max_annual`; `disability` with `benefit_pct`; `auto`, `home`, `renters`, ...) |
@@ -50,6 +50,13 @@ units are in [units-and-conventions.md](units-and-conventions.md).
 | Term life policy | `kind: life`, `policy: term`, `issue_year` and `issue_month` (premiums on the anniversary; coverage ends at the last anniversary) |
 | Marriage | `relationships.marriages[]`: `spouses` (the first is the tax-unit head), `filing_status` |
 | Plans | `events[]`: `at: {year}` / `{age}` / `{relative: {after, years}}`, `person`, `action` (`retire`, `change_job`, `move`, `buy_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `contribute`, `convert_to_roth`, `claim_social_security`, `refinance`, `heloc_draw`, `disability`, ...) |
+
+A `savings_policy` can name one spendable opening bank account with `source_bank`. The
+`cash_floor` then applies to that account alone. If you omit `source_bank`, the floor applies
+across spendable bank accounts. The destination must also be an opening account. Optional
+`start_year` and `end_year` bound the actual transfer year, inclusively. Taxable destinations
+receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
+transfer year, up to that year's contribution room.
 
 Schedule `pay_mortgage_at_maturity` with the borrower's `person`, `home` id and an explicit
 `at: {year, month, day}`. It pays the live principal and the lender's quoted `interest_due` before the

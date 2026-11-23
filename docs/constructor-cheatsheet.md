@@ -75,7 +75,7 @@ Each spec entry, the core class the builder constructs, the fields you must give
 | CreditCard (`kind: credit_card`) | `CreditCard` | `credit_limit` | `name='Card'`, `balance=0.0`, `payment_strategy='minimum'`, `payment_monthly=0.0`, `spending_charged_pct=0.0` |
 | HomeEquityLine (`kind: heloc`) | `HomeEquityLine` | `home`, `credit_limit`, `rate_pct` | `balance=0.0`, `improvement_balance=0.0`, `payment_strategy='interest_only'`, `payment_monthly=0.0` |
 | Home (`kind: home`) | `Home` | `purchase_price`, `expenses` | `name='Home'`, `value_growth_pct='economy'`, `down_payment=0.0`, `purchase=False`, `pmi=True` |
-| Mortgage | `Mortgage` | `rate_pct` | `extra_principal_monthly=0.0`, `schedule='contract'` |
+| Mortgage | `Mortgage` | `rate_pct` | `extra_principal_monthly=0.0`, `schedule='contract'`, `rate_compounding='monthly'` |
 | HomeExpenses | `HomeExpenses` | — | `property_tax_pct=0.0`, `insurance_pct=0.0`, `property_tax_growth_pct='economy'`, `insurance_growth_pct='economy'`, `maintenance_annual=0.0`, `maintenance_growth_pct=0.0`, `improvement_annual=0.0`, `improvement_growth_pct=0.0`, `hoa_monthly=0.0`, `hoa_growth_pct=0.0` |
 | Rental (`kind: rental`) | `Apartment` | `rent_monthly` | `name='Apartment'`, `rent_growth_pct=5.0` |
 | LifeInsurance (`kind: life`) | `LifeInsurance` | `policy`, `death_benefit`, `premium_monthly` | `premium_schedule='level'`, `group=False` |
@@ -96,7 +96,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 
 | Class | Owner | Required | Optional (default) |
 |---|---|---|---|
-| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'` |
+| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'`, `*collect_positions=False` |
 | `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None` |
 | `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None`, `*unpaid_bills_debt=0.0` |
 | `Spending` (life_model.people.person) | `model` | `model` | `base_annual=0`, `growth_pct=0`, `*categories=None`, `*schedule=None` |
@@ -123,7 +123,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 | `StudentLoan` (life_model.debt.student_loan) | `owner` | `owner`, `*loan_type` | `*original_amount=None`, `*rate_pct=None`, `*term_years=None`, `*school_name='School'`, `*current_balance=None`, `*payment_monthly=None`, `*in_deferment=False`, `*repayment_plan=StudentLoanRepaymentPlan.STANDARD`, `*term_months=None`, `*origination=None`, `*payments_made=None`, `*remaining_months=None`, `*extra_principal_monthly=0.0`, `*schedule='contract'`, `*deferment_until=None`, `*qualifying_payments=0` |
 | `CreditCard` (life_model.debt.credit_card) | `owner` | `owner`, `*name`, `*credit_limit` | `*balance=0`, `*rate_pct=None`, `*minimum_payment_pct=None`, `*card_type=None`, `*payment_strategy=PaymentStrategy.MINIMUM`, `*payment_monthly=0.0`, `*spending_charge_pct=0.0` |
 | `Home` (life_model.housing.home) | `owner` | `owner`, `name`, `purchase_price`, `value_growth_pct`, `down_payment`, `mortgage`, `expenses` | `purchase=False`, `*current_value=None`, `*cost_basis=None`, `*purchase_year=None`, `*pmi=True`, `*pmi_monthly=None`, `*closing_cost_percent=None` |
-| `Mortgage` (life_model.housing.home) |  | — | `*original_amount=None`, `*start_year=None`, `*term_years=None`, `*rate_pct=None`, `*current_balance=None`, `*payment_monthly=None`, `*term_months=None`, `*origination=None`, `*payments_made=None`, `*remaining_months=None`, `*escrow_monthly=None`, `*extra_principal_monthly=0.0`, `*schedule='contract'` |
+| `Mortgage` (life_model.housing.home) |  | — | `*original_amount=None`, `*start_year=None`, `*term_years=None`, `*rate_pct=None`, `*current_balance=None`, `*payment_monthly=None`, `*term_months=None`, `*origination=None`, `*payments_made=None`, `*remaining_months=None`, `*escrow_monthly=None`, `*extra_principal_monthly=0.0`, `*schedule='contract'`, `*rate_compounding='monthly'` |
 | `HomeExpenses` (life_model.housing.home) | `model` | `model` | `property_tax_pct=0.0`, `insurance_pct=0.0`, `maintenance_annual=0.0`, `maintenance_growth_pct=0.0`, `improvement_annual=0.0`, `improvement_growth_pct=0.0`, `hoa_annual=0.0`, `hoa_growth_pct=0.0`, `*property_tax_annual=None`, `*property_tax_growth_pct=None`, `*assessed_value=None`, `*assessment_growth_cap_pct=None`, `*insurance_annual=None`, `*insurance_growth_pct=None`, `*inflation=False` |
 | `Apartment` (life_model.housing.apartment) | `owner` | `owner`, `name`, `rent_monthly` | `rent_growth_pct=5` |
 | `LifeInsurance` (life_model.insurance.life_insurance) | `owner` | `owner`, `policy_type`, `death_benefit`, `premium_monthly` | `term_years=None`, `premium_increase_rate=None`, `cash_value_growth_pct=None`, `loan_interest_pct=None`, `max_missed_payments=None`, `*beneficiary=None`, `*issue_year=None`, `*issue_month=None`, `*cash_value=0.0`, `*loan_balance=0.0`, `*premiums_paid=None` |
@@ -131,7 +131,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 | `SocialSecurity` (life_model.insurance.social_security) | `owner` | `owner` | `claim_age=None`, `earnings_history=None`, `*pia_override_monthly=None`, `*fra_from_birth_year=False`, `*spousal_benefit=False`, `*earnings_test=False` |
 | `Donation` (life_model.charity.donation) | `person` | `person`, `charity_name`, `annual_amount` | `donation_type=DonationType.CASH`, `tax_deductible=True`, `frequency_years=1`, `start_year=None`, `end_year=None` |
 | `ContributionPlan` (life_model.policies) |  | `account` | `*amount_annual=None`, `*pct_of_pay=None`, `*source='bank'`, `*months=12`, `*bucket=None`, `*start=None`, `*end=None` |
-| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None` |
+| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None`, `*source_bank=None`, `*start_year=None`, `*end_year=None` |
 | `RothConversionPolicy` (life_model.policies) |  | — | `*fill_bracket_pct=None`, `*amount_annual=None`, `*source=None`, `*target=None`, `*until_age=None` |
 | `Child` (life_model.dependents.child) | `person` | `person`, `name`, `birth_year` | `*care_expenses_annual=0.0`, `*interest_annual=0.0`, `*dividends_annual=0.0`, `*cost_annual=None`, `*college_cost_annual=None`, `*birth_month=None` |
 

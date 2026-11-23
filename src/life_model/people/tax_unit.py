@@ -5,6 +5,7 @@
 
 import math
 import warnings
+from collections import deque
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -693,15 +694,19 @@ class TaxUnit:
             return sorted(self.members, key=lambda m: (m.early_withdrawal_penalty(100.0), m.name, m.age))
         return sorted(self.members, key=lambda m: (m.name, m.age))
 
-    def _pay_from_banks(self, amount: float, *, kind=None, sink=None, to_account=None, cause=None) -> float:
+    def _pay_from_banks(
+        self, amount: float, *, kind=None, sink=None, to_account=None, cause=None, paid_from=None
+    ) -> float:
         """Pay ``amount`` from the unit's bank accounts in :meth:`_bank_accounts_in_draw_order`.
         Returns the shortfall. ``kind`` (with ``sink``/``to_account``, ``cause``) posts the payment
-        to the ledger."""
+        to the ledger. Supply ``paid_from`` to accumulate actual draws for itemized bill postings."""
         for account in self._bank_accounts_in_draw_order():
             if amount <= 0:
                 return 0.0
             taken = account.withdraw(amount)
             amount -= taken
+            if paid_from is not None and taken > 0:
+                paid_from[account] = paid_from.get(account, 0.0) + taken
             if kind is not None and taken > 0:
                 account.model.ledger.post(
                     taken,
@@ -715,8 +720,7 @@ class TaxUnit:
         return amount
 
     def _payer_account(self):
-        """The account settlement posts the household's bills from: the first bank in draw order,
-        else the head's cash pocket (the per-account split of the payment is not tracked)."""
+        """The fallback cash account for unfunded amounts and lump-sum annual bills."""
         accounts = self._bank_accounts_in_draw_order()
         if accounts:
             return accounts[0]
@@ -1159,8 +1163,8 @@ class TaxUnit:
         Tax-free qualified HSA reimbursements of medical costs come first, then the members' banks,
         then each later source of ``withdrawal_order`` raises only what is still unpaid (unsized: the
         gains, distributions and penalties a draw creates are on the members' ledgers and are taxed
-        when the year settles). Each bill is posted to the ledger by line from the household's payer
-        account; a shortfall becomes debt on the head, repaid (with interest) with next month's bills.
+        when the year settles). Bill postings use the accounts that funded them. A shortfall
+        becomes debt on the head, repaid (with interest) with next month's bills.
         """
         model = self.members[0].model
         spending_by_member: dict[int, float] = {}
@@ -1176,17 +1180,20 @@ class TaxUnit:
         when = f"{model.year}-{model.month:02d}"
         if bills > 0:
             self._draw_hsa_for_medical(bills)
+            paid_from = {}
             with model.ledger.caused_by(f"pay {when} bills"):
-                remaining = self._pay_from_banks(bills)
+                remaining = self._pay_from_banks(bills, paid_from=paid_from)
                 for source in self.withdrawal_order[1:]:
                     if remaining < 0.005:
                         break
                     self._raise_cash(source, remaining)
-                    remaining = self._pay_from_banks(remaining)
+                    remaining = self._pay_from_banks(remaining, paid_from=paid_from)
             shortfall = round_money(max(0.0, remaining))
             payer = self._payer_account()
+            # With one funding account, each bill stays one entry.
+            funding = deque(paid_from.items()) if any(account is not payer for account in paid_from) else None
             for line in bill_lines:
-                line.post(model.ledger, payer)
+                line.post(model.ledger, payer, funding=funding)
             self.members[0].add_debt(shortfall, to_account=payer, cause=f"unpaid {when} bills")
         for member in self.members:
             uid = member.unique_id
@@ -1848,7 +1855,7 @@ class TaxUnit:
 
 
 class _BillLine:
-    """One line of a settlement's bills, posted from the payer account once the year is paid.
+    """One bill line, posted from the accounts funding it or the fallback payer.
 
     ``to_account`` makes it a transfer (a loan's principal, repaying carried debt), ``from_account``
     overrides the payer (a liability charged with capitalized interest), and a line with
@@ -1871,7 +1878,7 @@ class _BillLine:
         #: Called after posting (a tax balance the payment settles).
         self.on_post = on_post
 
-    def post(self, ledger, payer) -> None:
+    def post(self, ledger, payer, *, funding=None) -> None:
         if self.on_post is not None:
             self.on_post()
         if self.source is not None:
@@ -1884,10 +1891,29 @@ class _BillLine:
                 agent=self.member,
             )
             return
+        if self.from_account is not None or funding is None or self.amount <= 0:
+            self._post_cash(ledger, self.from_account if self.from_account is not None else payer, self.amount)
+            return
+        remaining = self.amount
+        while remaining > 0 and funding:
+            account, available = funding[0]
+            # Fold differences smaller than half a cent into the current split.
+            paid = remaining if remaining - available < 0.005 else available
+            self._post_cash(ledger, account, paid)
+            remaining -= paid
+            if available - paid < 0.005:
+                funding.popleft()
+            else:
+                funding[0] = (account, available - paid)
+        if remaining >= 0.005:
+            # The unfunded portion uses the account paired with the new debt.
+            self._post_cash(ledger, payer, remaining)
+
+    def _post_cash(self, ledger, account, amount: float) -> None:
         ledger.post(
-            self.amount,
+            amount,
             self.kind,
-            from_account=self.from_account if self.from_account is not None else payer,
+            from_account=account,
             to_account=self.to_account,
             sink=self.sink,
             cause=self.cause,
