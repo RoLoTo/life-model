@@ -12,6 +12,8 @@ from ..ledger import FlowKind
 from .credit_card import PaymentStrategy, RevolvingDebt
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from ..housing.home import Home
     from ..people.person import Person
 
@@ -138,7 +140,11 @@ class HomeEquityLine(RevolvingDebt):
         share = self.improvement_balance / self.balance if self.balance > 0 else 0.0
         return average * min(1.0, share), 0.0
 
-    def pay_off_from_sale(self, cause: str) -> float:
+    def sale_payoff_amount(self, when: "date") -> float:
+        """Amount deducted from proceeds when the collateral is sold."""
+        return self.balance
+
+    def pay_off_from_sale(self, cause: str, *, when: "date | None" = None) -> float:
         """Repay the whole balance out of the home's sale price (called by :meth:`Home.sell`)."""
         payoff = self.balance
         if payoff > 0:
