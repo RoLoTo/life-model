@@ -1359,6 +1359,7 @@ Pay the live principal and quoted final interest on the contractual maturity dat
 | `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
 | `interest_due` | number | USD | **required** |  | Lender's quoted interest due at payoff. |
 | `cash_floor` | number | USD | `0.0` |  | Spendable bank cash protected from payoff withdrawals. |
+| `bridge` | string (optional) |  | — |  | Borrower's approved bridge line. Draw up to its headroom to fund the payoff and cash floor. |
 
 ## MortgagePrepaymentEvent
 
