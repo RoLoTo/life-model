@@ -70,6 +70,13 @@ bypasses prepayment caps and fees. The payoff follows the home's current owner a
 bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amount is logged as
 `shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
+Set the payoff's optional `bridge` to a borrower-owned `bridge_line` id to draw automatically.
+The draw rounds the amount needed to fund the payoff and preserve `cash_floor` up to whole cents,
+then caps it at approved headroom. The payoff records the bridge draw and carries any remaining gap
+as `shortfall_debt`, due with the next month's bills. The model treats bridge interest as
+non-deductible financing expense, including interest on an automatic draw. Qualified refinancing
+can count as acquisition debt up to the prior qualifying principal under U.S. rules.
+[IRS Publication 936](https://www.irs.gov/publications/p936)
 
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
