@@ -11,6 +11,7 @@ formats. Comments in hand-written YAML are not preserved.
 """
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,11 +25,13 @@ __all__ = ["dump", "dumps", "json_schema", "load", "loads", "to_data"]
 
 
 def _clean(value: Any) -> Any:
-    """Plain YAML/JSON-safe data: tuples become lists, whole floats become ints."""
+    """Convert tuples to lists, dates to ISO strings and whole floats to integers."""
     if isinstance(value, dict):
         return {key: _clean(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_clean(item) for item in value]
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, float) and value.is_integer() and abs(value) < 1e15:
         return int(value)
     return value
