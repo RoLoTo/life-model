@@ -732,6 +732,7 @@ Builds: `Mortgage`.
 | `schedule` | `"contract"` \\| `"statement"` |  | `"contract"` | `Loan.schedule` | Which inputs to trust. 'contract' (default): the original terms define the schedule and the statement must agree (a balance above the original schedule is an error). 'statement': the loan is behind its original schedule (late payments, a deferral, a forbearance) and the statement's balance is right: it amortizes from balance at payment_monthly, else over remaining_months, else at the contract payment of original_amount over the term (paying off after the original maturity); original_amount, term and origination are then kept for the record. Needs balance. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` | `Mortgage.rate_compounding` | Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent. |
 | `renewal_state` | [MortgageRenewalState](#mortgagerenewalstate) (optional) |  | — | `Mortgage.renewal_state` | PMI and acquisition debt state saved alongside the current repayment schedule after renewal. |
+| `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) (optional) |  | — | `Mortgage.prepayment_privilege` | Optional contract cap on lump sums. |
 | `start_year` | integer (optional) | year | — | `Mortgage.start_date` | Year the loan was originated (prefer origination). Without a balance, a year before the start is taken as an origination in January of that year. |
 | `escrow_monthly` | number (optional) | USD/month | — | `Mortgage.escrow_monthly` | Escrow included in payment_monthly (subtracted: the home's expenses pay tax and insurance). |
 
@@ -751,6 +752,17 @@ Builds: `MortgageRenewalState`.
 | `origination` | string (optional) |  | — |  | Origination month of the PMI schedule, when known. |
 | `acquisition_cap` | number (optional) | USD | — |  | Maximum acquisition debt balance (omit if all debt qualifies). |
 | `grandfathered_cap` | number | USD | `0.0` |  | Maximum grandfathered debt balance. |
+
+## MortgagePrepaymentPrivilege
+
+Annual cap on lump-sum principal payments.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `anniversary` | date |  | **required** |  | First eligible date and annual reset anniversary. |
+| `annual_limit_pct` | number | percent | **required** |  | Percentage of the fixed contract basis allowed per contract year. |
+| `basis_amount` | number (optional) | USD | — |  | Fixed contract amount. Defaults to the original mortgage or the balance at renewal. |
+| `used` | number | USD | `0.0` |  | Amount already used in the opening contract year. |
 
 ## HomeExpenses
 
@@ -1326,6 +1338,7 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | `rate_pct` | number | percent | **required** |  | New quoted annual rate. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted annual rate. |
 | `amortization_months` | integer (optional) | months | — |  | Number of new monthly payments. By default, keep the scheduled number of payments remaining. |
+| `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) \\| `"uncapped"` (optional) |  | — |  | New cap starting at zero usage. Omit to retain the existing cap, or use 'uncapped' to remove it. |
 
 ## MortgageMaturityEvent
 

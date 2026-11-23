@@ -1131,7 +1131,16 @@ class _SpecChecker:
         return True
 
     def check_mortgage(self, m: s.Mortgage, path: str, *, as_of: tuple[int, int] | None = None) -> None:
+        from datetime import date
+
         from ..debt.terms import mortgage_rate_on_monthly_basis
+
+        if m.prepayment_privilege is not None:
+            year, month = as_of or (self.start, self.start_month)
+            try:
+                m.prepayment_privilege.resolve(date(year, month, 1), m.original_amount)
+            except ValueError as error:
+                self.error(f"{path}.prepayment_privilege", str(error))
 
         rate_pct = mortgage_rate_on_monthly_basis(m.rate_pct, m.rate_compounding)
         if not self.check_loan(m, path, as_of=as_of, rate_pct=rate_pct):
@@ -1312,6 +1321,15 @@ class _SpecChecker:
                     else:
                         action = "pay off"
                     self.error(f"{path}.home", f"the home has no mortgage to {action}")
+                elif (
+                    isinstance(event, s.MortgageRenewalEvent)
+                    and isinstance(event.prepayment_privilege, s.MortgagePrepaymentPrivilege)
+                    and target[2].mortgage.extra_principal_monthly
+                ):
+                    self.error(
+                        f"{path}.prepayment_privilege",
+                        "A lump-sum privilege cannot be combined with automatic extra principal",
+                    )
             if isinstance(event, s.RefinanceEvent):
                 target = item_ids.get(event.debt, (None, None, None))[2]
                 if not isinstance(target, s.Home | s.CarLoan | s.StudentLoan):
