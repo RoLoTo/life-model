@@ -30,7 +30,6 @@ Conventions (enforced by the field types and :mod:`life_model.spec.validate`):
 
 from calendar import monthrange
 from datetime import date
-from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -1819,10 +1818,10 @@ class MortgagePrepaymentPrivilege(SpecModel):
             raise ValueError("A prepayment cap needs a basis amount when the original principal is unknown")
         return ContractPrepaymentPrivilege(
             anniversary=self.anniversary,
-            annual_limit_pct=Decimal(str(self.annual_limit_pct)),
-            basis_amount=Decimal(str(basis)),
+            annual_limit_pct=self.annual_limit_pct,
+            basis_amount=basis,
             as_of=as_of,
-            used=Decimal(str(self.used)),
+            used=self.used,
         )
 
 
