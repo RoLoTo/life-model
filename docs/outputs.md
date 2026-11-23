@@ -345,4 +345,5 @@ notebook table (`_repr_html_`) shows the life story; detail kinds are kept but n
 | `penalty` | yes | Detail: an additional tax settled with the year's return (amount; cause: its source). |
 | `shortfall_debt` | yes | Detail: bills the household could not pay, carried as debt (amount, cause). |
 | `refinanced` |  | A loan was refinanced (amount: the new principal; cause: the refinance). |
+| `mortgage_renewed` |  | A mortgage's outstanding principal was repriced (amount: unchanged principal; details: date, rate_pct, rate_compounding, amortization_months, monthly_payment). |
 | `mortgage_paid_at_maturity` |  | A mortgage was paid off (amount: principal plus final interest; details: date, principal, interest_due, cash_floor, shortfall_debt). |

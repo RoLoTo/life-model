@@ -1792,6 +1792,25 @@ Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine, Field(disc
 # --- Housing -------------------------------------------------------------------------------------
 
 
+class MortgageRenewalState(SpecModel):
+    """The PMI schedule and acquisition debt limits saved when a mortgage has renewed."""
+
+    CORE_CLASS = "MortgageRenewalState"
+
+    original_amount: NonNegativeMoney = spec_field(
+        description="Principal at the start of the PMI schedule.", unit="USD"
+    )
+    rate_pct: NonNegativePercent = spec_field(description="Annual rate on a monthly compounding basis.", unit="percent")
+    payment_monthly: NonNegativeMoney = spec_field(description="Scheduled principal and interest.", unit="USD/month")
+    term_months: int = spec_field(description="Full term of the PMI schedule.", unit="month", ge=0)
+    payments_made: int = spec_field(description="Payments made across all renewal terms.", unit="month", ge=0)
+    origination: YearMonth | None = spec_field(None, description="Origination month of the PMI schedule, when known.")
+    acquisition_cap: NonNegativeMoney | None = spec_field(
+        None, description="Maximum acquisition debt balance (omit if all debt qualifies).", unit="USD"
+    )
+    grandfathered_cap: NonNegativeMoney = spec_field(0.0, description="Maximum grandfathered debt balance.", unit="USD")
+
+
 class Mortgage(_LoanTerms):
     __doc__ = (
         "The mortgage on a home. "
@@ -1807,6 +1826,11 @@ class Mortgage(_LoanTerms):
         "monthly",
         description="Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent.",
         core="Mortgage.rate_compounding",
+    )
+    renewal_state: MortgageRenewalState | None = spec_field(
+        None,
+        description="PMI and acquisition debt state saved alongside the current repayment schedule after renewal.",
+        core="Mortgage.renewal_state",
     )
 
     start_year: Year | None = spec_field(
@@ -3008,6 +3032,31 @@ class RefinanceEvent(EventBase):
         return self
 
 
+class MortgageRenewalEvent(EventBase):
+    """Renew a mortgage before the specified month's payment, with no new borrowing or fees."""
+
+    action: Literal["renew_mortgage"]
+    at: At = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    rate_pct: NonNegativePercent = spec_field(description="New quoted annual rate.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly", description="Compounding of the quoted annual rate."
+    )
+    amortization_months: int | None = spec_field(
+        None,
+        description="Number of new monthly payments. By default, keep the scheduled number of payments remaining.",
+        unit="months",
+        ge=1,
+    )
+
+    @model_validator(mode="after")
+    def _first_day(self) -> "MortgageRenewalEvent":
+        when = self.at
+        if when.year is None or when.month is None or when.day not in (None, 1):
+            raise ValueError("A mortgage renewal requires the first day of an explicit calendar month")
+        return self
+
+
 class MortgageMaturityEvent(EventBase):
     """Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller.
 
@@ -3079,6 +3128,7 @@ Event = Annotated[
     | ClaimSocialSecurityEvent
     | DieEvent
     | RefinanceEvent
+    | MortgageRenewalEvent
     | MortgageMaturityEvent
     | HelocDrawEvent
     | DisabilityEvent,
@@ -3105,6 +3155,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "claim_social_security",
     "die",
     "refinance",
+    "renew_mortgage",
     "pay_mortgage_at_maturity",
     "heloc_draw",
     "disability",

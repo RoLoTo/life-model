@@ -35,7 +35,7 @@ error: put what already happened into the starting state (for example a marriage
 
 ## Event actions
 
-`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `pay_mortgage_at_maturity`, `heloc_draw`, `disability`.
+`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `heloc_draw`, `disability`.
 
 ## HouseholdSpec
 
@@ -49,7 +49,7 @@ A complete household: metadata, optional economy overrides, people, relationship
 | `people` | list[[Person](#person)] |  | **required** |  | The people in the household (one family). |
 | `relationships` | [Relationships](#relationships) |  | {} |  | Marriages. |
 | `withdrawal_order` | list[`"bank"` \\| `"fixed_income"` \\| `"brokerage"` \\| `"roth_basis"` \\| `"pretax"` \\| `"roth_earnings"` \\| `"reserve"`] (optional) |  | — | `Family.withdrawal_order` | Household payment waterfall: the order sources are drawn to pay bills and taxes, across every member. Each source exactly once, starting with 'bank'. Defaults to bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve (fixed_income and reserve may be left out: they then take those places). |
-| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageMaturityEvent](#mortgagematurityevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
+| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
 | `actuals` | map[integer → [ActualRecords](#actualrecords)] (optional) |  | — |  | What the household's real documents say, by tax year (filed 1040 lines, W-2s, 1099s, statement balances): read by 'life-model reconcile' and the backtest, ignored by the builder. Keep real documents in my-models/ (git-ignored). |
 
 ## Meta
@@ -731,8 +731,26 @@ Builds: `Mortgage`.
 | `extra_principal_monthly` | number | USD/month | `0.0` | `Loan.extra_principal_monthly` | Extra principal paid with every payment (paid with the month's bills). |
 | `schedule` | `"contract"` \\| `"statement"` |  | `"contract"` | `Loan.schedule` | Which inputs to trust. 'contract' (default): the original terms define the schedule and the statement must agree (a balance above the original schedule is an error). 'statement': the loan is behind its original schedule (late payments, a deferral, a forbearance) and the statement's balance is right: it amortizes from balance at payment_monthly, else over remaining_months, else at the contract payment of original_amount over the term (paying off after the original maturity); original_amount, term and origination are then kept for the record. Needs balance. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` | `Mortgage.rate_compounding` | Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent. |
+| `renewal_state` | [MortgageRenewalState](#mortgagerenewalstate) (optional) |  | — | `Mortgage.renewal_state` | PMI and acquisition debt state saved alongside the current repayment schedule after renewal. |
 | `start_year` | integer (optional) | year | — | `Mortgage.start_date` | Year the loan was originated (prefer origination). Without a balance, a year before the start is taken as an origination in January of that year. |
 | `escrow_monthly` | number (optional) | USD/month | — | `Mortgage.escrow_monthly` | Escrow included in payment_monthly (subtracted: the home's expenses pay tax and insurance). |
+
+## MortgageRenewalState
+
+The PMI schedule and acquisition debt limits saved when a mortgage has renewed.
+
+Builds: `MortgageRenewalState`.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `original_amount` | number | USD | **required** |  | Principal at the start of the PMI schedule. |
+| `rate_pct` | number | percent | **required** |  | Annual rate on a monthly compounding basis. |
+| `payment_monthly` | number | USD/month | **required** |  | Scheduled principal and interest. |
+| `term_months` | integer | month | **required** |  | Full term of the PMI schedule. |
+| `payments_made` | integer | month | **required** |  | Payments made across all renewal terms. |
+| `origination` | string (optional) |  | — |  | Origination month of the PMI schedule, when known. |
+| `acquisition_cap` | number (optional) | USD | — |  | Maximum acquisition debt balance (omit if all debt qualifies). |
+| `grandfathered_cap` | number | USD | `0.0` |  | Maximum grandfathered debt balance. |
 
 ## HomeExpenses
 
@@ -1292,6 +1310,22 @@ Refinance a mortgage (``debt`` is the home's id) or a car or student loan: a new
 | `finance_costs` | boolean |  | `False` |  | Roll the costs into the new loan (else paid in cash). |
 | `cash_out` | number | USD | `0.0` |  | Cash taken out above the balance. |
 | `cash_out_for_improvements` | boolean |  | `False` |  | The cash-out pays for improvements to the home (acquisition debt: its interest is deductible). |
+
+## MortgageRenewalEvent
+
+Renew a mortgage before the specified month's payment, with no new borrowing or fees.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
+| `at` | [At](#at) |  | **required** |  | Effective month as YYYY-MM or {year, month, day: 1}. |
+| `person` | string |  | **required** |  | Person the event applies to. |
+| `name` | string (optional) |  | — |  | Description shown in the event list. |
+| `action` | `"renew_mortgage"` |  | **required** |  |  |
+| `home` | string |  | **required** |  | Id of the borrower's home with the mortgage. |
+| `rate_pct` | number | percent | **required** |  | New quoted annual rate. |
+| `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted annual rate. |
+| `amortization_months` | integer (optional) | months | — |  | Number of new monthly payments. By default, keep the scheduled number of payments remaining. |
 
 ## MortgageMaturityEvent
 
