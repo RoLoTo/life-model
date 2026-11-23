@@ -214,6 +214,8 @@ class TestSavingsBoost(unittest.TestCase):
             initial_spending=50000,
             savings_boost_pct=10,
         )
+        base.reset(seed=0)
+        boosted.reset(seed=0)
         self.assertAlmostEqual(boosted.person.spending.base, 40000)
         for _ in range(3):
             base.step(_NO_ACTION)

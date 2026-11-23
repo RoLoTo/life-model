@@ -18,6 +18,9 @@ import pandas as pd
 from ..account.bank import BankAccount
 from ..account.brokerage import BrokerageAccount
 from ..account.job401k import Job401kAccount
+from ..api import run
+from ..debt.car_loan import CarLoan
+from ..lifeevents import LifeEvent, LifeEvents
 from ..model import EventKind, LifeModel
 from ..montecarlo import MonteCarlo, MonteCarloResult
 from ..people.family import Family
@@ -25,6 +28,7 @@ from ..people.person import Person, Spending
 from ..results import RunResult, _require_parquet
 from ..work.job import Job, Salary
 from .scenarios import married_homeowners, stochastic_retiree
+from .spec_helpers import fixture_config, minimal
 
 # Parquet export needs the optional `life-model[parquet]` extra (pyarrow); CI installs it via requirements-dev.txt.
 HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
@@ -282,3 +286,75 @@ class TestMonthlyFrames(unittest.TestCase):
             loaded = RunResult.load(Path(directory) / "csv")
             self.assertEqual(len(loaded.monthly_frame), 18)
         self.assertIsNone(LifeModel(start_year=2026, end_year=2026).run().monthly_frame)
+
+
+class TestMonthlyPositions(unittest.TestCase):
+    def test_signed_balances_reconcile_without_aggregate_monthly_collection(self):
+        model = LifeModel(
+            start="2026-07",
+            end_year=2026,
+            config=fixture_config(),
+            collect_data=False,
+            collect_positions=True,
+        )
+        owner = Person(Family(model), "Pat", 40, 70, Spending(model, base_annual=0))
+        BankAccount(owner, company="Checking", balance=1000, interest_pct=0)
+        CarLoan(owner, name="Car", original_amount=500, rate_pct=0, term_months=10)
+        result = model.run()
+        positions = result.monthly_positions
+        self.assertIsNone(result.monthly_frame)
+        self.assertEqual(positions["month"].unique().tolist(), [7, 8, 9, 10, 11, 12])
+        july = positions[positions["month"] == 7].set_index("account_type")["balance"]
+        self.assertEqual((july["BankAccount"], july["CarLoan"]), (950, -450))
+        self.assertEqual(positions["owner_id"].unique().tolist(), [owner.unique_id])
+        self.assertEqual(
+            positions.groupby(["year", "month"])["balance"].sum().tolist(),
+            result.monthly_balance_sheets["closing_net_worth"].tolist(),
+        )
+
+    def test_ownership_reflects_each_month_even_after_an_inheritance(self):
+        model = LifeModel(start_year=2026, end_year=2026, config=fixture_config(), collect_positions=True)
+        family = Family(model)
+        owner = Person(family, "Pat", 40, 70, Spending(model, base_annual=0))
+        heir = Person(family, "Lee", 40, 70, Spending(model, base_annual=0))
+        owner.get_married(heir)
+        bank = BankAccount(owner, balance=1000, interest_pct=0)
+        LifeEvents(model, [LifeEvent(2026, "Inheritance", owner.die, month=2)])
+        result = model.run()
+        positions = result.monthly_positions
+        rows = positions[positions["account"] == f"BankAccount:{bank.unique_id}"]
+        self.assertEqual(rows["owner_name"].tolist(), ["Pat", *(["Lee"] * 11)])
+        self.assertEqual(rows["owner_id"].tolist(), [owner.unique_id, *([heir.unique_id] * 11)])
+        self.assertEqual(rows["balance"].tolist(), [1000] * 12)
+
+    def test_api_opt_in_and_export_preserve_spec_ids_and_balances(self):
+        spec = minimal(
+            id="001",
+            jobs=[],
+            spending={"amount_annual": 0},
+            accounts=[{"kind": "bank", "id": "NA", "balance": 1000, "interest_pct": 0}],
+        )
+        ordinary = run(spec, years=2, seed=1, checks="off")
+        detailed = run(spec, years=2, seed=1, checks="off", collect_positions=True)
+        self.assertIsNone(ordinary.monthly_positions)
+        pd.testing.assert_frame_equal(detailed.model_frame, ordinary.model_frame)
+        pd.testing.assert_frame_equal(detailed.ledger, ordinary.ledger)
+        positions = detailed.monthly_positions
+        bank = positions[positions["account_type"] == "BankAccount"]
+        self.assertEqual(set(bank["account_spec_id"]), {"NA"})
+        self.assertEqual(set(bank["owner_spec_id"]), {"001"})
+        real = detailed.real_dollars().monthly_positions
+        real_bank = real[real["account_type"] == "BankAccount"]
+        self.assertAlmostEqual(real_bank.iloc[-1]["balance"], bank.iloc[-1]["balance"] / detailed.deflators[2027])
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            document = json.loads(detailed.to_json(folder / "detailed.json").read_text())
+            self.assertEqual(len(document["monthly_positions"]), len(positions))
+            self.assertNotIn("monthly_positions", json.loads(ordinary.to_json(folder / "ordinary.json").read_text()))
+            loaded = RunResult.load(detailed.to_csv(folder / "csv"))
+            pd.testing.assert_frame_equal(loaded.monthly_positions, positions, check_dtype=False)
+            ordinary.to_csv(folder / "csv")
+            self.assertIsNone(RunResult.load(folder / "csv").monthly_positions)
+            if HAS_PYARROW:
+                loaded = RunResult.load(detailed.to_parquet(folder / "parquet"))
+                pd.testing.assert_frame_equal(loaded.monthly_positions, positions, check_dtype=False)

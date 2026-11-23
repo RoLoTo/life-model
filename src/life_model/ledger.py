@@ -384,16 +384,28 @@ class CashFlowLedger:
 # ----------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class PositionIdentity:
+    """Account and owner details as of the balance sheet's date."""
+
+    account_name: str
+    account_spec_id: str | None
+    owner_name: str
+    owner_spec_id: str | None
+
+
 @dataclass(frozen=True)
 class BalanceSheet:
     """Household assets and liabilities at one moment.
 
     ``lines`` maps account labels to signed values (assets positive, liabilities negative);
-    ``owners`` maps each label to its owner's ``unique_id``.
+    ``owners`` maps each label to its owner's ``unique_id``. When requested,
+    ``position_details`` maps the same labels to their account and owner identities.
     """
 
     lines: dict[str, float]
     owners: dict[str, int]
+    position_details: dict[str, PositionIdentity] | None = None
 
     @property
     def net_worth(self) -> float:
@@ -474,16 +486,18 @@ def balance_sheet_lines(agent: Any) -> list[tuple[str, float, Any]]:
     return []
 
 
-def household_balance_sheet(model: "LifeModel") -> BalanceSheet:
+def household_balance_sheet(model: "LifeModel", *, include_positions: bool = False) -> BalanceSheet:
     """Every living person's assets and liabilities (see :func:`balance_sheet_lines`).
 
     A line counts only while its owner is a living person still in the model, so whatever a
     decedent leaves behind un-inherited drops out (and must be posted as leaving).
+    ``include_positions`` adds identities captured at the same moment as the balances.
     """
     person_type = _sheet_types()[0]
     living = {agent.unique_id for agent in model.agents if isinstance(agent, person_type) and not agent.is_deceased}
     lines: dict[str, float] = {}
     owners: dict[str, int] = {}
+    details: dict[str, PositionIdentity] | None = {} if include_positions else None
     for agent in model.agents:
         for label, value, owner in balance_sheet_lines(agent):
             owner_id = getattr(owner, "unique_id", None)
@@ -491,7 +505,14 @@ def household_balance_sheet(model: "LifeModel") -> BalanceSheet:
                 continue
             lines[label] = lines.get(label, 0.0) + value
             owners[label] = owner_id
-    return BalanceSheet(lines=lines, owners=owners)
+            if details is not None:
+                details[label] = PositionIdentity(
+                    account_name=label.partition(":")[0] if agent is owner else describe_account(agent),
+                    account_spec_id=None if agent is owner else getattr(agent, "spec_id", None),
+                    owner_name=owner.name,
+                    owner_spec_id=getattr(owner, "spec_id", None),
+                )
+    return BalanceSheet(lines=lines, owners=owners, position_details=details)
 
 
 def owned_lines(model: "LifeModel", owner: Any) -> list[tuple[str, float, Any]]:
