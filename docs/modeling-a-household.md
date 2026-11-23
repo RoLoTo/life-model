@@ -76,11 +76,22 @@ to principal after scheduled bills. Each month it uses the same tax holdback as 
 contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
 year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
 surplus (for example, `0.5` for half). Scheduled payments continue at the contracted amount.
-Enter only prepayments permitted under the mortgage contract.
 
 In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
 sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's
 floor. Tax-advantaged sweeps run at the start of the following year.
+
+For a contractual annual cap, set the mortgage's `prepayment_privilege` with the first eligible
+`anniversary` and `annual_limit_pct`. The cap resets on that anniversary each year. Set
+`basis_amount` if the contract uses a different amount from the original mortgage, and `used` for
+lump sums already paid in the opening contract year. A saved projection carries forward the cap's
+basis and usage. Use the lump-sum cap with `prepay_mortgage` events and enter regular principal in
+the mortgage's scheduled payment.
+
+A `renew_mortgage` event keeps the same cap and usage by default. New `prepayment_privilege` terms
+start at zero usage and use the balance immediately before renewal as their default basis. Pass
+`prepayment_privilege: uncapped` to end the cap at renewal. A refinance starts a new loan and
+clears the previous cap.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that

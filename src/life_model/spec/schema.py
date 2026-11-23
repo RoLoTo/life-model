@@ -35,6 +35,7 @@ from typing import Annotated, Any, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..debt.terms import MortgageRateCompounding
+from ..housing.prepayment import MortgagePrepaymentPrivilege as ContractPrepaymentPrivilege
 
 #: Version of the spec format written by :func:`life_model.spec.io.dump`.
 SPEC_VERSION = 1
@@ -1812,6 +1813,37 @@ class MortgageRenewalState(SpecModel):
     grandfathered_cap: NonNegativeMoney = spec_field(0.0, description="Maximum grandfathered debt balance.", unit="USD")
 
 
+class MortgagePrepaymentPrivilege(SpecModel):
+    """Annual cap on lump-sum principal payments."""
+
+    anniversary: date = spec_field(description="First eligible date and annual reset anniversary.")
+    annual_limit_pct: NonNegativePercent = spec_field(
+        description="Percentage of the fixed contract basis allowed per contract year.", unit="percent", le=100
+    )
+    basis_amount: NonNegativeMoney | None = spec_field(
+        None,
+        description="Fixed contract amount. Defaults to the original mortgage or the balance at renewal.",
+        unit="USD",
+        gt=0,
+        allow_inf_nan=False,
+    )
+    used: NonNegativeMoney = spec_field(
+        0.0, description="Amount already used in the opening contract year.", unit="USD", allow_inf_nan=False
+    )
+
+    def resolve(self, as_of: date, default_basis: float | None) -> ContractPrepaymentPrivilege:
+        basis = self.basis_amount if self.basis_amount is not None else default_basis
+        if basis is None:
+            raise ValueError("A prepayment cap needs a basis amount when the original principal is unknown")
+        return ContractPrepaymentPrivilege(
+            anniversary=self.anniversary,
+            annual_limit_pct=self.annual_limit_pct,
+            basis_amount=basis,
+            as_of=as_of,
+            used=self.used,
+        )
+
+
 class Mortgage(_LoanTerms):
     __doc__ = (
         "The mortgage on a home. "
@@ -1833,6 +1865,9 @@ class Mortgage(_LoanTerms):
         description="PMI and acquisition debt state saved alongside the current repayment schedule after renewal.",
         core="Mortgage.renewal_state",
     )
+    prepayment_privilege: MortgagePrepaymentPrivilege | None = spec_field(
+        None, description="Optional contract cap on lump sums.", core="Mortgage.prepayment_privilege"
+    )
 
     start_year: Year | None = spec_field(
         None,
@@ -1847,6 +1882,12 @@ class Mortgage(_LoanTerms):
         unit="USD/month",
         core="Mortgage.escrow_monthly",
     )
+
+    @model_validator(mode="after")
+    def _lump_sums(self) -> "Mortgage":
+        if self.prepayment_privilege is not None and self.extra_principal_monthly:
+            raise ValueError("A lump-sum privilege cannot be combined with automatic extra principal")
+        return self
 
 
 class HomeExpenses(SpecModel):
@@ -3049,6 +3090,16 @@ class MortgageRenewalEvent(EventBase):
         unit="months",
         ge=1,
     )
+    prepayment_privilege: MortgagePrepaymentPrivilege | Literal["uncapped"] | None = spec_field(
+        None,
+        description="New cap starting at zero usage. Omit to retain the existing cap, or use 'uncapped' to remove it.",
+    )
+
+    @model_validator(mode="after")
+    def _new_usage(self) -> "MortgageRenewalEvent":
+        if isinstance(self.prepayment_privilege, MortgagePrepaymentPrivilege) and self.prepayment_privilege.used:
+            raise ValueError("A renewal's new prepayment privilege starts with zero usage")
+        return self
 
     @model_validator(mode="after")
     def _first_day(self) -> "MortgageRenewalEvent":
