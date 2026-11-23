@@ -82,8 +82,8 @@ class LifeEvents(LifeModelAgent):
             return life_event.month
         return self.model.start_month if life_event.year == self.model.start_year else 1
 
-    def add(self, life_event: "LifeEvent") -> None:
-        """Schedule ``life_event`` (validated exactly like the constructor's events)."""
+    def add(self, life_event: "LifeEvent", *, before_same_day: bool = False) -> None:
+        """Schedule an event, optionally before events already queued for its day and stage."""
         if (life_event.year, self.due_month(life_event)) < (self.model.year, self.model.month):
             if not self.allow_past:
                 when = life_event.year if life_event.month is None else f"{life_event.year}-{life_event.month:02d}"
@@ -101,7 +101,10 @@ class LifeEvents(LifeModelAgent):
                 UserWarning,
                 stacklevel=2,
             )
-        self.life_events.append(life_event)
+        if before_same_day:
+            self.life_events.insert(0, life_event)
+        else:
+            self.life_events.append(life_event)
 
     def _repr_html_(self):
         table = "<table>"

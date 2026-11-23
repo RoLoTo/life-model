@@ -93,6 +93,7 @@ class BuiltHousehold:
 
 ACCOUNT_KIND_ORDER = (
     "bank",
+    "cash_reserve",
     "fixed_income",
     "401k",
     "brokerage",
@@ -580,6 +581,14 @@ class _Builder:
 
     # --- accounts ---
 
+    def event_schedule(self):
+        """The shared schedule for spec events and account releases."""
+        from ..lifeevents import LifeEvents
+
+        if self.built.life_events is None:
+            self.built.life_events = LifeEvents(self.model)
+        return self.built.life_events
+
     def build_account(self, person, person_spec: s.Person, account: Any):
         kind = account.kind
         invest = {}
@@ -619,6 +628,16 @@ class _Builder:
                 name=account.name,
                 accrued_interest=account.accrued_interest,
                 cost_basis=account.cost_basis,
+            )
+        if kind == "cash_reserve":
+            from ..account.cash_reserve import CashReserve
+
+            return CashReserve(
+                person,
+                name=account.name,
+                amount=account.balance,
+                schedule=self.event_schedule(),
+                release_on=account.release_on,
             )
         if kind == "401k":
             from ..account.job401k import Job401kAccount
@@ -1158,7 +1177,7 @@ class _Builder:
             self._register(p, "accounts", i, item, self.build_account(self.person(p.id), p, item))
         for p, i, job in each("jobs", lambda j: j.stock_plan is not None):
             self.build_stock_plan(self.built.items[job.id or f"{p.id}.jobs[{i}]"], job.stock_plan)
-        late = ("bank", "401k", *LATE_ACCOUNT_KINDS)
+        late = ("bank", "401k", "cash_reserve", *LATE_ACCOUNT_KINDS)
         for p, i, item in each("accounts", lambda a: a.kind not in late):
             self._register(p, "accounts", i, item, self.build_account(self.person(p.id), p, item))
         for p, i, item in each("debts", lambda d: d.kind != "heloc"):
@@ -1245,9 +1264,11 @@ class _Builder:
 
         life_events = ev.compile_events(self, timing)
         if life_events:
-            from ..lifeevents import LifeEvents
-
-            self.built.life_events = LifeEvents(self.model, life_events)
+            schedule = self.event_schedule()
+            for life_event in life_events:
+                schedule.add(life_event)
+        for p, i, item in each("accounts", lambda a: a.kind == "cash_reserve"):
+            self._register(p, "accounts", i, item, self.build_account(self.person(p.id), p, item))
         return self.built
 
 

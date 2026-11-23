@@ -35,7 +35,7 @@ error: put what already happened into the starting state (for example a marriage
 
 ## Event actions
 
-`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `prepay_mortgage`, `heloc_draw`, `disability`.
+`marry`, `divorce`, `retire`, `change_job`, `move`, `buy_home`, `sell_home`, `one_time_expense`, `recurring_expense`, `change_spending`, `add_account`, `reserve_cash`, `contribute`, `stop_contribution`, `change_contribution`, `convert_to_roth`, `claim_social_security`, `die`, `refinance`, `renew_mortgage`, `pay_mortgage_at_maturity`, `prepay_mortgage`, `heloc_draw`, `disability`.
 
 ## HouseholdSpec
 
@@ -49,7 +49,7 @@ A complete household: metadata, optional economy overrides, people, relationship
 | `people` | list[[Person](#person)] |  | **required** |  | The people in the household (one family). |
 | `relationships` | [Relationships](#relationships) |  | {} |  | Marriages. |
 | `withdrawal_order` | list[`"bank"` \\| `"fixed_income"` \\| `"brokerage"` \\| `"roth_basis"` \\| `"pretax"` \\| `"roth_earnings"` \\| `"reserve"`] (optional) |  | — | `Family.withdrawal_order` | Household payment waterfall: the order sources are drawn to pay bills and taxes, across every member. Each source exactly once, starting with 'bank'. Defaults to bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve (fixed_income and reserve may be left out: they then take those places). |
-| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [MortgagePrepaymentEvent](#mortgageprepaymentevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
+| `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ReserveCashEvent](#reservecashevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [MortgagePrepaymentEvent](#mortgageprepaymentevent), [HelocDrawEvent](#helocdrawevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
 | `actuals` | map[integer → [ActualRecords](#actualrecords)] (optional) |  | — |  | What the household's real documents say, by tax year (filed 1040 lines, W-2s, 1099s, statement balances): read by 'life-model reconcile' and the backtest, ignored by the builder. Keep real documents in my-models/ (git-ignored). |
 
 ## Meta
@@ -135,7 +135,7 @@ Builds: `Person`.
 | `death_age` | integer (optional) | age | — | `Person.death_age` | Age of death for mortality 'fixed_age'. |
 | `spending` | [Spending](#spending) (optional) |  | — |  | This person's living spending. Spending is per person and adds across the household: the household's budget is the sum of every person's amount_annual, so give the whole household budget on one spouse (and leave the other spouse's spending out, or 0) or split it between them, never the full budget on each. Required for a person without a spouse (relationships.marriages) whose spending holds the budget; a spouse who leaves it out spends nothing of their own. |
 | `jobs` | list[[Job](#job)] |  | [] |  | Jobs (W-2). |
-| `accounts` | list[one of: [BankAccount](#bankaccount), [FixedIncomeAccount](#fixedincomeaccount), [BrokerageAccount](#brokerageaccount), [Job401k](#job401k), [TraditionalIRA](#traditionalira), [RothIRA](#rothira), [HealthSavingsAccount](#healthsavingsaccount), [Plan529](#plan529), [InheritedPretaxAccount](#inheritedpretaxaccount), [Pension](#pension), [Annuity](#annuity), [DonorAdvisedFund](#donoradvisedfund), [Trust](#trust)] |  | [] |  | Accounts, discriminated by 'kind'. |
+| `accounts` | list[one of: [BankAccount](#bankaccount), [CashReserveAccount](#cashreserveaccount), [FixedIncomeAccount](#fixedincomeaccount), [BrokerageAccount](#brokerageaccount), [Job401k](#job401k), [TraditionalIRA](#traditionalira), [RothIRA](#rothira), [HealthSavingsAccount](#healthsavingsaccount), [Plan529](#plan529), [InheritedPretaxAccount](#inheritedpretaxaccount), [Pension](#pension), [Annuity](#annuity), [DonorAdvisedFund](#donoradvisedfund), [Trust](#trust)] |  | [] |  | Accounts, discriminated by 'kind'. |
 | `unpaid_bills_debt` | number | USD | `0.0` | `Person.unpaid_bills_debt` | Opening balance of unpaid bills carried into the first month's settlement. |
 | `debts` | list[one of: [CarLoan](#carloan), [StudentLoan](#studentloan), [CreditCard](#creditcard), [HomeEquityLine](#homeequityline)] |  | [] |  | Debts (car, student, credit_card, heloc). |
 | `housing` | list[one of: [Home](#home), [Rental](#rental)] |  | [] |  | Homes and rentals. |
@@ -325,6 +325,20 @@ Builds: `BankAccount`.
 | `compounding` | `"monthly"` \\| `"annual"` (optional) |  | — | `BankAccount.compounding` | How interest_pct compounds: 'monthly' (an APR) or 'annual' (enter an APY). Defaults to the configured convention. |
 | `reserve` | boolean |  | `False` | `BankAccount.reserve` | An emergency reserve: income is not deposited here and the waterfall draws it only after every other source. |
 | `joint` | boolean |  | `False` | `BankAccount.joint_owner` | Owned jointly with this person's spouse (a marriage in relationships in effect at the start). List the account once, under either spouse. Either spouse's income can be paid in: the spouse's lands here when they have no bank account of their own, or always when this account is primary (primary for both). Either spouse can pay from it (a spouse needs no bank account of their own), its interest is split half and half between their returns (it matters filing separately), and it passes to the survivor at a death, outside the estate. |
+
+## CashReserveAccount
+
+Cash already earmarked at the start, held outside the payment waterfall until release.
+
+Builds: `CashReserve`.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `kind` | `"cash_reserve"` |  | **required** |  |  |
+| `id` | string (optional) |  | — |  | Optional identifier for this account, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
+| `name` | string |  | `"Earmarked cash"` |  | Label used on the ledger. |
+| `balance` | number | USD | **required** |  | Starting earmarked balance. |
+| `release_on` | date |  | **required** |  | Calendar date when the balance becomes available. |
 
 ## FixedIncomeAccount
 
@@ -1216,7 +1230,22 @@ Open an account.
 | `person` | string |  | **required** |  | Person the event applies to. |
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"add_account"` |  | **required** |  |  |
-| `account` | [BankAccount](#bankaccount) \\| [FixedIncomeAccount](#fixedincomeaccount) \\| [BrokerageAccount](#brokerageaccount) \\| [Job401k](#job401k) \\| [TraditionalIRA](#traditionalira) \\| [RothIRA](#rothira) \\| [HealthSavingsAccount](#healthsavingsaccount) \\| [Plan529](#plan529) \\| [InheritedPretaxAccount](#inheritedpretaxaccount) \\| [Pension](#pension) \\| [Annuity](#annuity) \\| [DonorAdvisedFund](#donoradvisedfund) \\| [Trust](#trust) |  | **required** |  | The account opened. |
+| `account` | [BankAccount](#bankaccount) \\| [CashReserveAccount](#cashreserveaccount) \\| [FixedIncomeAccount](#fixedincomeaccount) \\| [BrokerageAccount](#brokerageaccount) \\| [Job401k](#job401k) \\| [TraditionalIRA](#traditionalira) \\| [RothIRA](#rothira) \\| [HealthSavingsAccount](#healthsavingsaccount) \\| [Plan529](#plan529) \\| [InheritedPretaxAccount](#inheritedpretaxaccount) \\| [Pension](#pension) \\| [Annuity](#annuity) \\| [DonorAdvisedFund](#donoradvisedfund) \\| [Trust](#trust) |  | **required** |  | The account opened. |
+
+## ReserveCashEvent
+
+Move cash from an owned bank into an earmark until its scheduled release.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
+| `at` | [At](#at) |  | **required** |  | When the event happens: {year}, {age} or {relative: {after, years}}. |
+| `person` | string |  | **required** |  | Person the event applies to. |
+| `name` | string (optional) |  | — |  | Description shown in the event list. |
+| `action` | `"reserve_cash"` |  | **required** |  |  |
+| `bank` | string |  | **required** |  | Id of the owner's funding bank. |
+| `amount` | number | USD | **required** |  | Cash to earmark. |
+| `release_on` | date |  | **required** |  | Release date in a later month, before ordinary events that day. |
 
 ## ContributeEvent
 
