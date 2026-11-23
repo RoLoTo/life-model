@@ -71,6 +71,17 @@ bank cash above `cash_floor`, with emergency reserves excluded. Any unpaid amoun
 `shortfall_debt` and comes due with the next month's bills. When relying on a same-day receipt,
 give both events IDs that sort with the receipt first (for example, `01-sale` and `02-payoff`).
 
+Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
+to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
+contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
+year. Set `cash_floor` to keep additional cash and `cash_fraction` to pay a share of the remaining
+surplus (for example, `0.5` for half). Scheduled payments continue at the contracted amount.
+Enter only prepayments permitted under the mortgage contract.
+
+In December, prepayment runs first, then annual taxes settle, then the taxable `savings_policy`
+sweep runs. The sweep applies its own `cash_floor`, and can leave less cash than the prepayment's
+floor. Tax-advantaged sweeps run at the start of the following year.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked

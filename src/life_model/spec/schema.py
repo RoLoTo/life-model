@@ -28,6 +28,7 @@ Conventions (enforced by the field types and :mod:`life_model.spec.validate`):
   field means removing its marker and teaching the builder and extractor to map it.
 """
 
+from calendar import monthrange
 from datetime import date
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -3079,6 +3080,26 @@ class MortgageMaturityEvent(EventBase):
         return self
 
 
+class MortgagePrepaymentEvent(EventBase):
+    """Apply surplus bank cash to mortgage principal after bills, reserving cash for taxes."""
+
+    action: Literal["prepay_mortgage"]
+    home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
+    cash_fraction: float = spec_field(
+        1.0, description="Fraction of cash above the tax holdback and floor to pay, from zero to one.", ge=0, le=1
+    )
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable cash to retain in addition to the tax holdback.", unit="USD", allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def _month_end(self) -> "MortgagePrepaymentEvent":
+        when = self.at
+        if when.year is None or when.month is None or when.day != monthrange(when.year, when.month)[1]:
+            raise ValueError("A mortgage prepayment requires the last day of an explicit calendar month")
+        return self
+
+
 class HelocDrawEvent(EventBase):
     """Draw on a home equity line: to the bank, or spent on improvements to the home securing it."""
 
@@ -3130,6 +3151,7 @@ Event = Annotated[
     | RefinanceEvent
     | MortgageRenewalEvent
     | MortgageMaturityEvent
+    | MortgagePrepaymentEvent
     | HelocDrawEvent
     | DisabilityEvent,
     Field(discriminator="action"),
@@ -3157,6 +3179,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "refinance",
     "renew_mortgage",
     "pay_mortgage_at_maturity",
+    "prepay_mortgage",
     "heloc_draw",
     "disability",
 )
