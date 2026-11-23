@@ -5,8 +5,10 @@
 
 import html
 import math
+from calendar import monthrange
 from dataclasses import dataclass, replace
 from datetime import date
+from decimal import ROUND_DOWN, Decimal
 from typing import ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
@@ -802,6 +804,54 @@ class Mortgage(Loan):
                 shortfall_debt=snap_money(shortfall),
             )
         )
+
+    def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_floor: float = 0.0) -> float:
+        """Pay a fraction of cash above the tax holdback and cash floor after the month's bills."""
+        from ..policies import available_cash_after_tax
+
+        if (when.year, when.month) != (self.model.year, self.model.month) or self.model.current_stage != "post_step":
+            raise ValueError("A surplus prepayment must execute after bills in its scheduled month")
+        if when.day != monthrange(when.year, when.month)[1]:
+            raise ValueError("A surplus prepayment must be dated on the last day of the month")
+        if not 0 <= cash_fraction <= 1:
+            raise ValueError("The prepayment cash fraction must be between zero and one")
+        if not math.isfinite(cash_floor) or cash_floor < 0:
+            raise ValueError("The prepayment cash floor must be finite and non-negative")
+        if self.principal <= 0:
+            return 0.0
+
+        person = self.person
+        cash_before = person.usable_bank_balance
+        cash_after_tax = available_cash_after_tax(person)
+        surplus = max(0.0, snap_money(cash_after_tax - cash_floor))
+        wanted = Decimal(str(surplus)) * Decimal(str(cash_fraction))
+        requested = float(wanted.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+        paid = min(self.principal, requested)
+        if paid:
+            paid -= person.deduct_from_bank_accounts(
+                paid, kind=FlowKind.HOUSING, to_account=self, cause="mortgage prepayment", include_reserve=False
+            )
+            self.principal -= paid
+            self._record_month(paid, 0.0)
+            if self.stat_principal_payment_history:
+                self.stat_principal_payment_history[-1] += paid
+            person.stat_housing_costs = snap_money(person.stat_housing_costs + paid)
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_PREPAYMENT,
+                person=person,
+                account=self,
+                amount=paid,
+                cause="month-end surplus",
+                date=when.isoformat(),
+                cash_before=cash_before,
+                cash_floor=cash_floor,
+                tax_holdback=snap_money(cash_before - cash_after_tax),
+                cash_fraction=cash_fraction,
+                requested=requested,
+            )
+        )
+        return paid
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
 
