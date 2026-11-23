@@ -3029,7 +3029,7 @@ class MortgageMaturityEvent(EventBase):
         0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
     )
     bridge: Identifier | None = spec_field(
-        None, description="Borrower's approved bridge line. Draw only the cash shortfall including the floor."
+        None, description="Borrower's approved bridge line. Draw up to its headroom to fund the payoff and cash floor."
     )
 
     @model_validator(mode="after")
