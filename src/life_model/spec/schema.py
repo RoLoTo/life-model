@@ -2767,6 +2767,13 @@ class Person(SpecModel):
     )
     jobs: list[Job] = spec_field(default_factory=list, description="Jobs (W-2).")
     accounts: list[Account] = spec_field(default_factory=list, description="Accounts, discriminated by 'kind'.")
+    unpaid_bills_debt: NonNegativeMoney = spec_field(
+        0.0,
+        description="Opening balance of unpaid bills carried into the first month's settlement.",
+        unit="USD",
+        core="Person.unpaid_bills_debt",
+        allow_inf_nan=False,
+    )
     debts: list[Debt] = spec_field(default_factory=list, description="Debts (car, student, credit_card, heloc).")
     housing: list[Housing] = spec_field(default_factory=list, description="Homes and rentals.")
     insurance: list[Insurance] = spec_field(default_factory=list, description="Insurance policies.")
@@ -3075,17 +3082,27 @@ class MortgageRenewalEvent(EventBase):
             raise ValueError("A renewal's new prepayment privilege starts with zero usage")
         return self
 
+    @model_validator(mode="after")
+    def _first_day(self) -> "MortgageRenewalEvent":
+        when = self.at
+        if when.year is None or when.month is None or when.day not in (None, 1):
+            raise ValueError("A mortgage renewal requires the first day of an explicit calendar month")
+        return self
+
 
 class MortgageMaturityEvent(EventBase):
-    """Pay a mortgage's outstanding principal and quoted final interest from bank cash on a specific date."""
+    """Pay the live principal and quoted final interest on the contractual maturity date supplied by the caller.
+
+    The engine accepts the supplied date and bypasses prepayment caps and fees. Any funding gap becomes unpaid-bills debt.
+    """
 
     action: Literal["pay_mortgage_at_maturity"]
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     interest_due: NonNegativeMoney = spec_field(
         description="Lender's quoted interest due at payoff.", unit="USD", allow_inf_nan=False
     )
-    cash_to_keep: NonNegativeMoney = spec_field(
-        0.0, description="Minimum spendable bank cash to keep after payoff.", unit="USD", allow_inf_nan=False
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable bank cash protected from payoff withdrawals.", unit="USD", allow_inf_nan=False
     )
 
     @model_validator(mode="after")
@@ -3096,15 +3113,15 @@ class MortgageMaturityEvent(EventBase):
 
 
 class MortgagePrepaymentEvent(EventBase):
-    """Apply surplus spendable bank cash to mortgage principal after the month's bills."""
+    """Apply surplus bank cash to mortgage principal after bills, reserving cash for taxes."""
 
     action: Literal["prepay_mortgage"]
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     cash_fraction: float = spec_field(
-        1.0, description="Fraction of spendable cash above the floor to pay, between zero and one.", ge=0, le=1
+        1.0, description="Fraction of cash above the tax holdback and floor to pay, from zero to one.", ge=0, le=1
     )
-    cash_to_keep: NonNegativeMoney = spec_field(
-        0.0, description="Minimum spendable bank balance to keep after the prepayment.", unit="USD", allow_inf_nan=False
+    cash_floor: NonNegativeMoney = spec_field(
+        0.0, description="Spendable cash to retain in addition to the tax holdback.", unit="USD", allow_inf_nan=False
     )
 
     @model_validator(mode="after")
@@ -3112,13 +3129,6 @@ class MortgagePrepaymentEvent(EventBase):
         when = self.at
         if when.year is None or when.month is None or when.day != monthrange(when.year, when.month)[1]:
             raise ValueError("A mortgage prepayment requires the last day of an explicit calendar month")
-        return self
-
-    @model_validator(mode="after")
-    def _first_day(self) -> "MortgageRenewalEvent":
-        when = self.at
-        if when.year is None or when.month is None or when.day not in (None, 1):
-            raise ValueError("A mortgage renewal requires the first day of an explicit calendar month")
         return self
 
 

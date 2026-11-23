@@ -22,18 +22,6 @@ from ..tax.income import IncomeType
 from .prepayment import MortgagePrepaymentPrivilege
 
 
-class MortgagePayoffShortfall(ValueError):
-    """Additional spendable bank cash required to discharge a mortgage on its due date."""
-
-    def __init__(self, *, when: date, payoff: float, bank_cash: float, cash_to_keep: float):
-        self.when = when
-        self.payoff = payoff
-        self.bank_cash = bank_cash
-        self.cash_to_keep = cash_to_keep
-        self.amount = snap_money(payoff + cash_to_keep - bank_cash)
-        super().__init__(f"Mortgage payoff on {when.isoformat()} needs {self.amount:,.2f} in additional bank cash")
-
-
 @dataclass(frozen=True)
 class MortgageRenewalState:
     """The PMI schedule and acquisition debt limits carried through a renewal."""
@@ -768,35 +756,38 @@ class Mortgage(Loan):
         elif self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
 
-    def pay_at_maturity(self, when: date, *, interest_due: float, cash_to_keep: float = 0.0) -> None:
-        """Discharge the live principal and the lender's quoted final interest from bank cash.
+    def pay_at_maturity(self, when: date, *, interest_due: float, cash_floor: float = 0.0) -> None:
+        """Discharge the live principal and quoted final interest before scheduled bills.
 
-        Raises MortgagePayoffShortfall before withdrawing anything if the payoff and cash floor
-        exceed the borrower's usable bank cash. Use the month's events stage before scheduled bills.
+        Draw spendable cash above the floor and carry any unpaid amount as debt due next month.
+        The caller supplies the maturity date and lender's final interest.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
-        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_to_keep)):
-            raise ValueError("Final interest and cash to keep must be finite and non-negative")
+        if any(not math.isfinite(amount) or amount < 0 for amount in (interest_due, cash_floor)):
+            raise ValueError("Final interest and cash floor must be finite and non-negative")
         if self.principal <= 0:
             return
         person = self.person
         principal = self.principal
         payoff = principal + interest_due
-        bank_cash = person.usable_bank_balance
-        if snap_money(payoff + cash_to_keep - bank_cash) > 0:
-            raise MortgagePayoffShortfall(when=when, payoff=payoff, bank_cash=bank_cash, cash_to_keep=cash_to_keep)
-
-        person.deduct_from_bank_accounts(
-            principal, kind=FlowKind.HOUSING, to_account=self, cause="mortgage payoff principal", include_reserve=False
-        )
-        person.deduct_from_bank_accounts(
-            interest_due,
-            kind=FlowKind.HOUSING,
-            sink="mortgage interest",
-            cause="mortgage payoff interest",
-            include_reserve=False,
-        )
+        cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
+        shortfall = 0.0
+        for amount, account, sink, cause in (
+            (principal, self, None, "mortgage payoff principal"),
+            (interest_due, None, "mortgage interest", "mortgage payoff interest"),
+        ):
+            cash_requested = min(amount, cash_available)
+            undrawn = person.deduct_from_bank_accounts(
+                cash_requested, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, include_reserve=False
+            )
+            cash_paid = cash_requested - undrawn
+            cash_available = max(0.0, snap_money(cash_available - cash_paid))
+            unpaid = snap_money(amount - cash_paid)
+            person.add_debt(
+                unpaid, kind=FlowKind.HOUSING, to_account=account, sink=sink, cause=cause, defer_until_next_month=True
+            )
+            shortfall += unpaid
         self._month_start_balances.append(principal)
         self.principal = 0.0
         self.payments_made += 1
@@ -815,26 +806,30 @@ class Mortgage(Loan):
                 date=when.isoformat(),
                 principal=principal,
                 interest_due=interest_due,
-                cash_to_keep=cash_to_keep,
+                cash_floor=cash_floor,
+                shortfall_debt=snap_money(shortfall),
             )
         )
 
-    def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_to_keep: float = 0.0) -> float:
-        """Pay a fraction of spendable bank cash above a floor to principal after the month's bills."""
+    def prepay_surplus(self, when: date, *, cash_fraction: float = 1.0, cash_floor: float = 0.0) -> float:
+        """Pay a fraction of cash above the tax holdback and cash floor after the month's bills."""
+        from ..policies import available_cash_after_tax
+
         if (when.year, when.month) != (self.model.year, self.model.month) or self.model.current_stage != "post_step":
             raise ValueError("A surplus prepayment must execute after bills in its scheduled month")
         if when.day != monthrange(when.year, when.month)[1]:
             raise ValueError("A surplus prepayment must be dated on the last day of the month")
         if not 0 <= cash_fraction <= 1:
             raise ValueError("The prepayment cash fraction must be between zero and one")
-        if not math.isfinite(cash_to_keep) or cash_to_keep < 0:
+        if not math.isfinite(cash_floor) or cash_floor < 0:
             raise ValueError("The prepayment cash floor must be finite and non-negative")
         if self.principal <= 0:
             return 0.0
 
         person = self.person
         cash_before = person.usable_bank_balance
-        surplus = max(0.0, snap_money(cash_before - cash_to_keep))
+        cash_after_tax = available_cash_after_tax(person)
+        surplus = max(0.0, snap_money(cash_after_tax - cash_floor))
         wanted = Decimal(str(surplus)) * Decimal(str(cash_fraction))
         requested = float(wanted.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
         paid = min(self.principal, requested)
@@ -861,7 +856,8 @@ class Mortgage(Loan):
             cause="month-end surplus",
             date=when.isoformat(),
             cash_before=cash_before,
-            cash_to_keep=cash_to_keep,
+            cash_floor=cash_floor,
+            tax_holdback=snap_money(cash_before - cash_after_tax),
             cash_fraction=cash_fraction,
             requested=requested,
         )

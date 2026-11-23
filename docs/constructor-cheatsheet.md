@@ -47,7 +47,7 @@ Each spec entry, the core class the builder constructs, the fields you must give
 | Meta | `LifeModel` | `name`, `start_year` | — |
 | Economy | `config.economy` | — | — |
 | StochasticEconomy | `config.economy.stochastic` | — | — |
-| Person | `Person` | `id`, `name`, `age`, `retirement_age` | `gender='other'`, `mortality='immortal'` |
+| Person | `Person` | `id`, `name`, `age`, `retirement_age` | `gender='other'`, `mortality='immortal'`, `unpaid_bills_debt=0.0` |
 | EstimatedPayments | `EstimatedPayments` | — | — |
 | Spending | `Spending` | `amount_annual` | `growth_pct=0.0` |
 | Job | `Job + Salary` | `company`, `salary_annual` | `role='Employee'`, `raise_pct=0.0`, `bonus_pct=0.0`, `signon_bonus=0.0` |
@@ -99,7 +99,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 |---|---|---|---|
 | `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'` |
 | `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None` |
-| `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None` |
+| `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None`, `*unpaid_bills_debt=0.0` |
 | `Spending` (life_model.people.person) | `model` | `model` | `base_annual=0`, `growth_pct=0`, `*categories=None`, `*schedule=None` |
 | `Job` (life_model.work.job) | `owner` | `owner`, `*company`, `*salary` | `*role='Employee'`, `*start_year=None`, `*end_year=None`, `*bonus=None`, `*raises=None`, `*kind='w2'`, `*expenses_annual=0.0`, `*payroll=None`, `*sep_account=None`, `*plan_contribution_percent=0.0`, `*sstb=False` |
 | `Salary` (life_model.work.job) | `model` | `model`, `*base_annual` | `*raise_pct=0`, `*bonus_pct=0`, `*bonus_month=None`, `*bonus=None`, `*raises=None` |
