@@ -7,7 +7,8 @@ import html
 import math
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import ClassVar
+from decimal import ROUND_CEILING, Decimal
+from typing import TYPE_CHECKING, ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis, scheduled_balance
@@ -17,6 +18,14 @@ from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
+
+if TYPE_CHECKING:
+    from ..debt.bridge import DatedBridgeLine
+
+
+def _bridge_draw_amount(gap: float) -> float:
+    """Smallest whole-cent draw that covers the gap."""
+    return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
 
 
 @dataclass(frozen=True)
@@ -752,11 +761,13 @@ class Mortgage(Loan):
         elif self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
 
-    def pay_at_maturity(self, when: date, *, interest_due: float, cash_floor: float = 0.0) -> None:
+    def pay_at_maturity(
+        self, when: date, *, interest_due: float, cash_floor: float = 0.0, bridge: "DatedBridgeLine | None" = None
+    ) -> None:
         """Discharge the live principal and quoted final interest before scheduled bills.
 
-        Draw spendable cash above the floor and carry any unpaid amount as debt due next month.
-        The caller supplies the maturity date and lender's final interest.
+        An approved bridge draws up to the lesser of the whole cents needed and available credit.
+        Draw spendable cash above the floor and carry any remaining gap as debt due next month.
         """
         if (when.year, when.month) != (self.model.year, self.model.month):
             raise ValueError("A mortgage payoff must execute in its scheduled month")
@@ -765,8 +776,20 @@ class Mortgage(Loan):
         if self.principal <= 0:
             return
         person = self.person
+        if bridge is not None and bridge.person is not person:
+            raise ValueError("The borrower must own the approved bridge line")
         principal = self.principal
         payoff = principal + interest_due
+        bridge_draw = 0.0
+        if bridge is not None:
+            bank = person.primary_bank_account
+            bank_cash = person.usable_bank_balance
+            gap = snap_money(payoff + cash_floor - bank_cash)
+            if gap > 0 and bank is not None and not bank.reserve:
+                requested = min(_bridge_draw_amount(gap), bridge.get_available_credit())
+                if requested > 0:
+                    bridge_draw = bridge.draw(requested, when=when)
+
         cash_available = max(0.0, snap_money(person.usable_bank_balance - cash_floor))
         shortfall = 0.0
         for amount, account, sink, cause in (
@@ -792,20 +815,21 @@ class Mortgage(Loan):
         self._record_month(principal, interest_due)
         person.stat_housing_costs = snap_money(person.stat_housing_costs + payoff)
         person.stat_interest_paid = snap_money(person.stat_interest_paid + interest_due)
-        self.model.event_log.add(
-            Event(
-                EventKind.MORTGAGE_PAID_AT_MATURITY,
-                person=person,
-                account=self,
-                amount=payoff,
-                cause="mortgage payoff",
-                date=when.isoformat(),
-                principal=principal,
-                interest_due=interest_due,
-                cash_floor=cash_floor,
-                shortfall_debt=snap_money(shortfall),
-            )
+        event = Event(
+            EventKind.MORTGAGE_PAID_AT_MATURITY,
+            person=person,
+            account=self,
+            amount=payoff,
+            cause="mortgage payoff",
+            date=when.isoformat(),
+            principal=principal,
+            interest_due=interest_due,
+            cash_floor=cash_floor,
+            shortfall_debt=snap_money(shortfall),
         )
+        if bridge is not None:
+            event.details["bridge_draw"] = bridge_draw
+        self.model.event_log.add(event)
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
 
@@ -1007,10 +1031,12 @@ def qualified_residence_interest(person: Person) -> float:
     limit, the interest is scaled by limit / balance (Pub. 936's worksheet with average balances).
     Interest on home-equity debt not used for the home is not deductible.
     """
+    from ..debt.bridge import DatedBridgeLine
+
     federal = person.model.year_config.tax.federal
     share = 0.5 if person.filing_status == FilingStatus.MARRIED_FILING_SEPARATELY else 1.0
     debts = [home.mortgage for home in person.homes if getattr(home, "mortgage", None) is not None]
-    debts += list(person.home_equity_lines)
+    debts += [line for line in person.home_equity_lines if not isinstance(line, DatedBridgeLine)]
     interest = acquisition = grandfathered = 0.0
     for debt in debts:
         debt_interest = debt.interest_paid_this_year
