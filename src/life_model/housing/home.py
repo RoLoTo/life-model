@@ -15,7 +15,7 @@ from ..base_classes import LOAN_RENAMES, Loan
 from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis, scheduled_balance
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind
-from ..model import Event, EventKind, LifeModel, LifeModelAgent, snap_money
+from ..model import Event, EventKind, LifeModel, LifeModelAgent, round_money, snap_money
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 def _bridge_draw_amount(gap: float) -> float:
     """Smallest whole-cent draw that covers the gap."""
     return float(Decimal(str(gap)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+
+
+def _closing_costs(model: LifeModel, price: float, percent: float | None) -> float:
+    rate = model.config.housing.closing_cost_percent if percent is None else percent
+    return price * (rate / 100)
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,7 @@ class Home(LifeModelAgent):
         pmi: bool = True,
         pmi_monthly: float | None = None,
         closing_cost_percent: float | None = None,
+        cash_only: bool = False,
     ):
         """Home
 
@@ -100,8 +106,21 @@ class Home(LifeModelAgent):
                 configured rate times the balance.
             closing_cost_percent (float, optional): Closing costs on a purchase, percent of the price
                 (configured default when None).
+            cash_only (bool, optional): Require bank cash for the down payment and closing costs
+                on a purchase. Insufficient cash raises before the purchase registers any agents.
         """
         person = owner
+        if purchase and cash_only:
+            from .closing import check_cash_purchase
+
+            check_cash_purchase(
+                owner,
+                price=purchase_price,
+                down_payment=down_payment,
+                principal=mortgage.principal if mortgage is not None else 0,
+                closing_costs=round_money(_closing_costs(owner.model, purchase_price, closing_cost_percent)),
+                current_value=current_value,
+            )
         super().__init__(person.model)
         self.person = person
         self.name = name
@@ -124,6 +143,7 @@ class Home(LifeModelAgent):
         self.pmi = pmi
         self.pmi_monthly = pmi_monthly
         self.closing_cost_percent = closing_cost_percent
+        self._cash_only = purchase and cash_only
         #: ``(year, month)`` the home was bought (None: owned before the run, date unknown).
         self.purchase_period: tuple[int, int] | None = None if purchase_year is None else (int(purchase_year), 1)
         if purchase:
@@ -228,21 +248,23 @@ class Home(LifeModelAgent):
         """
         from ..people.tax_unit import TaxUnit
 
-        closing_pct = self.closing_cost_percent
-        if closing_pct is None:
-            closing_pct = self.model.config.housing.closing_cost_percent
-        closing_costs = self.purchase_price * (closing_pct / 100)
+        closing_costs = _closing_costs(self.model, self.purchase_price, self.closing_cost_percent)
+        if self._cash_only:
+            closing_costs = round_money(closing_costs)
         cash_needed = self.down_payment + closing_costs
         ledger = self.model.ledger
         cause = f"purchase of {self.name}"
         unit = TaxUnit.for_member(self.person)
+        pay = unit._pay_from_banks if self._cash_only else unit.pay_bills
         # The down payment buys equity (a transfer into the home); the mortgage lends the rest of
         # the price (borrowed into the home); closing costs are spent.
         with ledger.caused_by(cause):
-            unpaid = unit.pay_bills(self.down_payment, kind=FlowKind.HOUSING, to_account=self, cause=cause)
-            self.person.add_debt(unpaid, to_account=self, cause=cause)
-            unpaid = unit.pay_bills(closing_costs, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
-            self.person.add_debt(unpaid, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
+            unpaid = pay(self.down_payment, kind=FlowKind.HOUSING, to_account=self, cause=cause)
+            if not self._cash_only:
+                self.person.add_debt(unpaid, to_account=self, cause=cause)
+            unpaid = pay(closing_costs, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
+            if not self._cash_only:
+                self.person.add_debt(unpaid, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
         principal = self.mortgage.principal if self.mortgage is not None else 0.0
         if self.mortgage is not None:
             ledger.post(
