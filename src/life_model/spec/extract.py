@@ -25,6 +25,7 @@ the state); retired jobs are omitted.
 """
 
 import re
+from dataclasses import asdict
 from typing import Any, Literal, cast
 
 from ..account.bank import COMPOUNDING_PERIODS
@@ -401,8 +402,6 @@ class _Extractor:
                 continue  # extracted as the person's self_employment
             payroll = None
             if job.payroll is not None:
-                from dataclasses import asdict
-
                 values = asdict(job.payroll)
                 values["withholding"] = _withholding_spec(job.payroll.withholding)
                 if any(values.values()):
@@ -905,10 +904,12 @@ class _Extractor:
                 start_year = getattr(m, "spec_start_year", None) if not self.stepped else None
                 if start_year is None and m.start_date is not None and getattr(m, "spec_loan_inputs", None) is None:
                     start_year = _none_if(int(m.start_date), start)
+                renewal_state = m.renewal_state
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
                     rate_compounding=m.rate_compounding,
+                    renewal_state=None if renewal_state is None else s.MortgageRenewalState(**asdict(renewal_state)),
                     **terms,
                 )
             e = home.expenses
@@ -1144,7 +1145,7 @@ class _Extractor:
             key: min(pending, key=lambda when: (when[0], when[1] or 0, when[2] or 1)) for key, pending in dates.items()
         }
         by_spec_id = {source.id: source for source in sources if isinstance(source, s.EventBase) and source.id}
-        retimed = []
+        retimed: list[s.Marriage | s.Event] = []
         for source in sources:
             first_year, first_month, first_day = first_pending[id(source)]
             if isinstance(source, s.Marriage):
@@ -1199,8 +1200,6 @@ def spec_from_model(model) -> s.HouseholdSpec:
 
 def _withholding_spec(policy):
     """The spec form of a core withholding policy."""
-    from dataclasses import asdict
-
     from ..tax.payments import W4
 
     if policy is None:

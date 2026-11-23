@@ -334,13 +334,7 @@ class Loan(LifeModelAgent, ABC):
                 self.person.add_debt(unpaid, kind=FlowKind.DEBT_SERVICE, sink="refinance closing costs", cause=cause)
         new_principal = old_principal + cash_out + (costs if finance_costs else 0.0)
         self._on_refinance(old_principal, new_principal)
-        self.principal = new_principal
-        self.loan_amount = new_principal
-        self.yearly_interest_rate = rate_pct
-        self.term_months = int(term_months)
-        self.payments_made = 0
-        self.origination = (self.model.year, self.model.month)
-        self.monthly_payment = self.calculate_monthly_payment()
+        self._reset_loan_schedule(new_principal, rate_pct, term_months, origination=(self.model.year, self.model.month))
         self.model.event_log.add(
             Event(
                 EventKind.REFINANCED,
@@ -353,6 +347,18 @@ class Loan(LifeModelAgent, ABC):
             )
         )
         return new_principal
+
+    def _reset_loan_schedule(
+        self, principal: float, rate_pct: float, term_months: int, *, origination: tuple[int, int] | None = None
+    ) -> None:
+        """Start a repayment schedule with the given principal and monthly-basis annual rate."""
+        self.principal = principal
+        self.loan_amount = principal
+        self.yearly_interest_rate = rate_pct
+        self.term_months = int(term_months)
+        self.payments_made = 0
+        self.origination = origination
+        self.monthly_payment = self.calculate_monthly_payment()
 
     def _on_refinance(self, old_principal: float, new_principal: float) -> None:
         """Hook for subclasses (a mortgage keeps its grandfathered acquisition debt)."""

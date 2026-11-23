@@ -4,16 +4,33 @@
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
 import html
+import math
+from dataclasses import dataclass, replace
+from datetime import date
 from typing import ClassVar
 
 from ..base_classes import LOAN_RENAMES, Loan
-from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis
+from ..debt.terms import MortgageRateCompounding, mortgage_rate_on_monthly_basis, scheduled_balance
 from ..deprecated_names import deprecated_arguments
 from ..ledger import FlowKind
 from ..model import Event, EventKind, LifeModel, LifeModelAgent
 from ..people.person import Person
 from ..tax.federal import FilingStatus
 from ..tax.income import IncomeType
+
+
+@dataclass(frozen=True)
+class MortgageRenewalState:
+    """The PMI schedule and acquisition debt limits carried through a renewal."""
+
+    original_amount: float
+    rate_pct: float
+    payment_monthly: float
+    term_months: int
+    payments_made: int
+    origination: str | None
+    acquisition_cap: float | None
+    grandfathered_cap: float
 
 
 class Home(LifeModelAgent):
@@ -162,14 +179,7 @@ class Home(LifeModelAgent):
         housing = self.model.config.housing
         if self.loan_to_value <= housing.pmi_ltv_threshold:
             return False
-        if mortgage.term_months and mortgage.payments_made >= mortgage.term_months / 2:
-            return False
-        from ..debt.terms import scheduled_balance
-
-        scheduled = scheduled_balance(
-            mortgage.loan_amount, mortgage.yearly_interest_rate, mortgage.monthly_payment, mortgage.payments_made
-        )
-        return scheduled / self.original_value * 100 > housing.pmi_termination_ltv
+        return not mortgage.pmi_termination_reached(self.original_value, housing.pmi_termination_ltv)
 
     def _pmi_for_year(self) -> float:
         """Private mortgage insurance charged this year (a year's premium; a twelfth is paid monthly)."""
@@ -624,6 +634,7 @@ class Mortgage(Loan):
         extra_principal_monthly: float = 0.0,
         schedule: str = "contract",
         rate_compounding: MortgageRateCompounding = "monthly",
+        renewal_state: MortgageRenewalState | None = None,
     ):
         """Mortgage
 
@@ -652,6 +663,7 @@ class Mortgage(Loan):
             extra_principal_monthly (float, optional): Extra principal paid every month.
             schedule (str, optional): ``"contract"`` (default) or ``"statement"`` (trust a current balance
                 above the original schedule; see :mod:`life_model.debt.terms`).
+            renewal_state (MortgageRenewalState, optional): Saved PMI schedule and tax limits on a renewed loan.
         """
         loan_amount, start_date, length_years = original_amount, start_year, term_years
         self.quoted_rate_pct = rate_pct
@@ -684,10 +696,12 @@ class Mortgage(Loan):
         self._set_terms(as_of=None, **{**self._term_inputs, "origination": None})
         #: The most of the balance that is acquisition debt (None: all of it); a refinance's cash-out
         #: beyond the old balance is not, unless it paid for improvements (IRC §163(h)(3)(B)).
-        self.acquisition_cap: float | None = None
+        self.acquisition_cap = None if renewal_state is None else renewal_state.acquisition_cap
         #: The most of the balance that is grandfathered acquisition debt (incurred on or before
         #: 2017-12-15: the $1M limit); a refinance keeps it up to the refinanced balance.
-        self.grandfathered_cap = 0.0
+        self.grandfathered_cap = 0.0 if renewal_state is None else renewal_state.grandfathered_cap
+        self._renewal_baseline = renewal_state
+        self._renewal_opening_payments = self.payments_made if renewal_state is not None else 0
 
         # Interest charged this year, accumulated payment by payment from each year start (the
         # itemized mortgage-interest deduction reads it). Until the first year starts it holds the
@@ -729,7 +743,9 @@ class Mortgage(Loan):
         from ..debt.terms import parse_origination
 
         cutoff = parse_origination(self.model.config.tax.federal.mortgage_interest_grandfather_date)
-        if self.origination is not None and cutoff is not None and self.origination <= cutoff:
+        if self._renewal_baseline is not None:
+            self._renewal_opening_payments = self.payments_made
+        elif self.origination is not None and cutoff is not None and self.origination <= cutoff:
             self.grandfathered_cap = self.principal
 
     # --- the year's qualified residence interest (IRS Pub. 936) ---
@@ -757,6 +773,87 @@ class Mortgage(Loan):
         acquisition = average if self.acquisition_cap is None else min(average, self.acquisition_cap)
         return acquisition, min(acquisition, self.grandfathered_cap)
 
+    @property
+    def renewal_state(self) -> MortgageRenewalState | None:
+        """PMI schedule progress and acquisition limits to save alongside the servicing schedule."""
+        baseline = self._renewal_baseline
+        if baseline is None:
+            return None
+        return replace(
+            baseline,
+            payments_made=baseline.payments_made + self.payments_made - self._renewal_opening_payments,
+            acquisition_cap=self.acquisition_cap,
+            grandfathered_cap=self.grandfathered_cap,
+        )
+
+    def pmi_termination_reached(self, home_value: float, termination_ltv: float) -> bool:
+        """Whether the PMI schedule reached its midpoint or the scheduled termination balance."""
+        baseline = self._renewal_baseline
+        if baseline is None:
+            amount, rate, payment = self.loan_amount, self.yearly_interest_rate, self.monthly_payment
+            term, made = self.term_months, self.payments_made
+        else:
+            amount, rate, payment = baseline.original_amount, baseline.rate_pct, baseline.payment_monthly
+            term = baseline.term_months
+            made = baseline.payments_made + self.payments_made - self._renewal_opening_payments
+        if term and made * 2 >= term:
+            return True
+        return scheduled_balance(amount, rate, payment, made) / home_value * 100 <= termination_ltv
+
+    def renew(
+        self,
+        *,
+        rate_pct: float,
+        rate_compounding: MortgageRateCompounding = "monthly",
+        amortization_months: int | None = None,
+    ) -> None:
+        """Reprice the outstanding principal before the current month's payment.
+
+        Use the remaining scheduled months unless a new amortization is given.
+        The balance, acquisition debt classification and payment history carry forward.
+        """
+        if self.principal <= 0:
+            return
+        remaining = self.remaining_months if amortization_months is None else amortization_months
+        if remaining <= 0:
+            raise ValueError("A mortgage renewal requires a positive amortization in months")
+        if not math.isfinite(rate_pct) or rate_pct < 0:
+            raise ValueError("A mortgage renewal requires a finite, non-negative rate")
+        rate = mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
+        effective_date = date(self.model.year, self.model.month, 1)
+        origin = self.origination
+        self._renewal_baseline = self.renewal_state or MortgageRenewalState(
+            original_amount=self.loan_amount,
+            rate_pct=self.yearly_interest_rate,
+            payment_monthly=self.monthly_payment,
+            term_months=self.term_months,
+            payments_made=self.payments_made,
+            origination=None if origin is None else f"{origin[0]}-{origin[1]:02d}",
+            acquisition_cap=self.acquisition_cap,
+            grandfathered_cap=self.grandfathered_cap,
+        )
+        # Payment one is in this month; snapshots use the actual count of payments made.
+        self._reset_loan_schedule(self.principal, rate, remaining)
+        self._renewal_opening_payments = 0
+        self.quoted_rate_pct = rate_pct
+        self.rate_compounding = rate_compounding
+        self.model.event_log.add(
+            Event(
+                EventKind.MORTGAGE_RENEWED,
+                person=self.person,
+                amount=self.principal,
+                account=self,
+                cause="mortgage renewal",
+                date=effective_date.isoformat(),
+                rate_pct=rate_pct,
+                rate_compounding=rate_compounding,
+                amortization_months=remaining,
+                monthly_payment=self.monthly_payment,
+                message=f"{self.person.name} renewed the mortgage at {rate_pct:g}% for {remaining} payments "
+                f"(${self.monthly_payment:,.2f}/month)",
+            )
+        )
+
     def refinance(
         self,
         rate_pct: float,
@@ -783,6 +880,8 @@ class Mortgage(Loan):
         )
         self.quoted_rate_pct = rate_pct
         self.rate_compounding = "monthly"
+        self._renewal_baseline = None
+        self._renewal_opening_payments = 0
         return new_principal
 
     def _pay_cash_out(self, amount: float, cause: str) -> None:
