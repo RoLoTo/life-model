@@ -256,6 +256,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         name = _name(event, f"{person.name} opens a {event.account.kind} account")
         return [_life_event(year, name, event, _add_account, builder, event)]
 
+    if action == "reserve_cash":
+        name = _name(event, "Earmarked cash")
+        return [_life_event(year, name, event, _reserve_cash, builder, person, event, name)]
+
     if action == "contribute":
         name = _name(event, f"{person.name} contributes ${event.amount:,.0f}")
         return [_life_event(year, name, event, _contribute, builder, person, event.account, event.amount)]
@@ -394,6 +398,26 @@ def _add_account(builder: "_Builder", event: s.AddAccountEvent) -> None:
     if event.account.id is not None:
         builder.built.items[event.account.id] = agent
         agent.spec_id = event.account.id
+
+
+def _reserve_cash(builder: "_Builder", person, event: s.ReserveCashEvent, name: str) -> None:
+    from ..account.bank import BankAccount
+    from ..account.cash_reserve import CashReserve
+
+    bank = builder.built.items.get(event.bank)
+    if not isinstance(bank, BankAccount) or bank.owner is not person:
+        raise ValueError(f"Funding bank {event.bank!r} must be open and owned by {person.name}")
+    reserve = CashReserve(
+        person,
+        name=name,
+        amount=event.amount,
+        bank=bank,
+        schedule=builder.event_schedule(),
+        release_on=event.release_on,
+    )
+    if event.id is not None:
+        builder.built.items[event.id] = reserve
+        reserve.spec_id = event.id
 
 
 def _contribute(builder: "_Builder", person, account_id: str, amount: float) -> None:

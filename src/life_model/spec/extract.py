@@ -499,6 +499,7 @@ class _Extractor:
     # --- accounts ---
 
     def accounts(self, person, job_ids: dict[int, str]) -> list:
+        from ..account.cash_reserve import CashReserve
         from ..account.inherited import InheritedPretaxAccount
         from ..insurance.annuity import AnnuityType
 
@@ -524,6 +525,17 @@ class _Extractor:
                     joint=getattr(bank, "joint_owner", None) is not None,
                 )
             )
+        for account in self.model.agents_by_type.get(CashReserve, ()):
+            if account.owner is person and account.balance > 0:
+                out.append(
+                    s.CashReserveAccount(
+                        kind="cash_reserve",
+                        id=self.item_id(account),
+                        name=account.name,
+                        balance=account.balance,
+                        release_on=account.release_on,
+                    )
+                )
         for holding in person.fixed_income_holdings:
             if holding.matured:
                 continue
