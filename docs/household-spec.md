@@ -731,6 +731,7 @@ Builds: `Mortgage`.
 | `schedule` | `"contract"` \\| `"statement"` |  | `"contract"` | `Loan.schedule` | Which inputs to trust. 'contract' (default): the original terms define the schedule and the statement must agree (a balance above the original schedule is an error). 'statement': the loan is behind its original schedule (late payments, a deferral, a forbearance) and the statement's balance is right: it amortizes from balance at payment_monthly, else over remaining_months, else at the contract payment of original_amount over the term (paying off after the original maturity); original_amount, term and origination are then kept for the record. Needs balance. |
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` | `Mortgage.rate_compounding` | Compounding of the quoted annual rate. Semiannual quotes are converted to the monthly equivalent. |
 | `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) (optional) |  | — | `Mortgage.prepayment_privilege` | Optional contract cap on lump sums. |
+| `renewal_state` | [MortgageRenewalState](#mortgagerenewalstate) (optional) |  | — | `Mortgage.renewal_state` | PMI and acquisition debt state saved alongside the current repayment schedule after renewal. |
 | `start_year` | integer (optional) | year | — | `Mortgage.start_date` | Year the loan was originated (prefer origination). Without a balance, a year before the start is taken as an origination in January of that year. |
 | `escrow_monthly` | number (optional) | USD/month | — | `Mortgage.escrow_monthly` | Escrow included in payment_monthly (subtracted: the home's expenses pay tax and insurance). |
 
@@ -744,6 +745,23 @@ Annual cap on lump-sum principal payments.
 | `annual_limit_pct` | number | percent | **required** |  | Percentage of the fixed contract basis allowed per contract year. |
 | `basis_amount` | number (optional) | USD | — |  | Fixed contract amount. Defaults to the original mortgage or the balance at renewal. |
 | `used` | number | USD | `0.0` |  | Amount already used in the opening contract year. |
+
+## MortgageRenewalState
+
+The PMI schedule and acquisition debt limits saved when a mortgage has renewed.
+
+Builds: `MortgageRenewalState`.
+
+| Field | Type | Unit | Default | Maps to | Description |
+|---|---|---|---|---|---|
+| `original_amount` | number | USD | **required** |  | Principal at the start of the PMI schedule. |
+| `rate_pct` | number | percent | **required** |  | Annual rate on a monthly compounding basis. |
+| `payment_monthly` | number | USD/month | **required** |  | Scheduled principal and interest. |
+| `term_months` | integer | month | **required** |  | Full term of the PMI schedule. |
+| `payments_made` | integer | month | **required** |  | Payments made across all renewal terms. |
+| `origination` | string (optional) |  | — |  | Origination month of the PMI schedule, when known. |
+| `acquisition_cap` | number (optional) | USD | — |  | Maximum acquisition debt balance (omit if all debt qualifies). |
+| `grandfathered_cap` | number | USD | `0.0` |  | Maximum grandfathered debt balance. |
 
 ## HomeExpenses
 
@@ -1157,7 +1175,7 @@ A one-time expense added to that year's spending.
 
 ## RecurringExpenseEvent
 
-An expense added every year from ``at`` through ``until`` (inclusive).
+An expense added every year from ``at`` through ``until`` (inclusive). The calendar day must exist in each year the expense runs. A February 29 expense can run once when its recurrence ends in the starting year.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1308,7 +1326,7 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
 | `id` | string (optional) |  | — |  | Event id (needed to anchor relative events). |
-| `at` | [MortgageRenewalAt](#mortgagerenewalat) |  | **required** |  | Effective month as YYYY-MM or {year, month, day: 1}. |
+| `at` | [At](#at) |  | **required** |  | Effective month as YYYY-MM or {year, month, day: 1}. |
 | `person` | string |  | **required** |  | Person the event applies to. |
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"renew_mortgage"` |  | **required** |  |  |
@@ -1317,19 +1335,6 @@ Renew a mortgage before the specified month's payment, with no new borrowing or 
 | `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted annual rate. |
 | `amortization_months` | integer (optional) | months | — |  | Number of new monthly payments. By default, keep the scheduled number of payments remaining. |
 | `prepayment_privilege` | [MortgagePrepaymentPrivilege](#mortgageprepaymentprivilege) \\| `"uncapped"` (optional) |  | — |  | New cap starting at zero usage. Omit to retain the existing cap, or use 'uncapped' to remove it. |
-
-## MortgageRenewalAt
-
-A calendar month, with the first day implied when omitted.
-
-| Field | Type | Unit | Default | Maps to | Description |
-|---|---|---|---|---|---|
-| `year` | integer | year | **required** |  | Calendar year of the renewal. |
-| `age` | integer (optional) | age | — |  | Age (whole years) of the event's person. |
-| `person` | string (optional) |  | — |  | Whose age 'age' refers to. Defaults to the event's person. |
-| `relative` | [Relative](#relative) (optional) |  | — |  | Relative to another event. |
-| `month` | integer | month | **required** |  | Calendar month of the renewal. |
-| `day` | `1` (optional) |  | — |  | If supplied, must be the first day. |
 
 ## MortgageMaturityEvent
 

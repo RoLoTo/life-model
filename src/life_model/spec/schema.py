@@ -1825,6 +1825,25 @@ class MortgagePrepaymentPrivilege(SpecModel):
         )
 
 
+class MortgageRenewalState(SpecModel):
+    """The PMI schedule and acquisition debt limits saved when a mortgage has renewed."""
+
+    CORE_CLASS = "MortgageRenewalState"
+
+    original_amount: NonNegativeMoney = spec_field(
+        description="Principal at the start of the PMI schedule.", unit="USD"
+    )
+    rate_pct: NonNegativePercent = spec_field(description="Annual rate on a monthly compounding basis.", unit="percent")
+    payment_monthly: NonNegativeMoney = spec_field(description="Scheduled principal and interest.", unit="USD/month")
+    term_months: int = spec_field(description="Full term of the PMI schedule.", unit="month", ge=0)
+    payments_made: int = spec_field(description="Payments made across all renewal terms.", unit="month", ge=0)
+    origination: YearMonth | None = spec_field(None, description="Origination month of the PMI schedule, when known.")
+    acquisition_cap: NonNegativeMoney | None = spec_field(
+        None, description="Maximum acquisition debt balance (omit if all debt qualifies).", unit="USD"
+    )
+    grandfathered_cap: NonNegativeMoney = spec_field(0.0, description="Maximum grandfathered debt balance.", unit="USD")
+
+
 class Mortgage(_LoanTerms):
     __doc__ = (
         "The mortgage on a home. "
@@ -1843,6 +1862,11 @@ class Mortgage(_LoanTerms):
     )
     prepayment_privilege: MortgagePrepaymentPrivilege | None = spec_field(
         None, description="Optional contract cap on lump sums.", core="Mortgage.prepayment_privilege"
+    )
+    renewal_state: MortgageRenewalState | None = spec_field(
+        None,
+        description="PMI and acquisition debt state saved alongside the current repayment schedule after renewal.",
+        core="Mortgage.renewal_state",
     )
 
     start_year: Year | None = spec_field(
@@ -2887,7 +2911,11 @@ class OneTimeExpenseEvent(EventBase):
 
 
 class RecurringExpenseEvent(EventBase):
-    """An expense added every year from ``at`` through ``until`` (inclusive)."""
+    """An expense added every year from ``at`` through ``until`` (inclusive).
+
+    The calendar day must exist in each year the expense runs. A February 29 expense can run
+    once when its recurrence ends in the starting year.
+    """
 
     action: Literal["recurring_expense"]
     amount_annual: NonNegativeMoney = spec_field(description="Amount per year.", unit="USD/year")
@@ -3020,19 +3048,11 @@ class RefinanceEvent(EventBase):
         return self
 
 
-class MortgageRenewalAt(At):
-    """A calendar month, with the first day implied when omitted."""
-
-    year: Year = spec_field(description="Calendar year of the renewal.", unit="year")
-    month: int = spec_field(description="Calendar month of the renewal.", unit="month", ge=1, le=12)
-    day: Literal[1] | None = spec_field(None, description="If supplied, must be the first day.")
-
-
 class MortgageRenewalEvent(EventBase):
     """Renew a mortgage before the specified month's payment, with no new borrowing or fees."""
 
     action: Literal["renew_mortgage"]
-    at: MortgageRenewalAt = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
+    at: At = spec_field(description="Effective month as YYYY-MM or {year, month, day: 1}.")
     home: Identifier = spec_field(description="Id of the borrower's home with the mortgage.")
     rate_pct: NonNegativePercent = spec_field(description="New quoted annual rate.", unit="percent")
     rate_compounding: MortgageRateCompounding = spec_field(
@@ -3092,6 +3112,13 @@ class MortgagePrepaymentEvent(EventBase):
         when = self.at
         if when.year is None or when.month is None or when.day != monthrange(when.year, when.month)[1]:
             raise ValueError("A mortgage prepayment requires the last day of an explicit calendar month")
+        return self
+
+    @model_validator(mode="after")
+    def _first_day(self) -> "MortgageRenewalEvent":
+        when = self.at
+        if when.year is None or when.month is None or when.day not in (None, 1):
+            raise ValueError("A mortgage renewal requires the first day of an explicit calendar month")
         return self
 
 

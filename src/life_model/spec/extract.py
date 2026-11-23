@@ -25,6 +25,7 @@ the state); retired jobs are omitted.
 """
 
 import re
+from dataclasses import asdict
 from datetime import date
 from typing import Any, Literal, cast
 
@@ -397,8 +398,6 @@ class _Extractor:
                 continue  # extracted as the person's self_employment
             payroll = None
             if job.payroll is not None:
-                from dataclasses import asdict
-
                 values = asdict(job.payroll)
                 values["withholding"] = _withholding_spec(job.payroll.withholding)
                 if any(values.values()):
@@ -912,11 +911,13 @@ class _Extractor:
                         basis_amount=float(cap.basis_amount),
                         used=float(cap.used_for(as_of)),
                     )
+                renewal_state = m.renewal_state
                 mortgage = s.Mortgage(
                     start_year=start_year,
                     escrow_monthly=m.escrow_monthly if not self.stepped else None,
                     rate_compounding=m.rate_compounding,
                     prepayment_privilege=privilege,
+                    renewal_state=None if renewal_state is None else s.MortgageRenewalState(**asdict(renewal_state)),
                     **terms,
                 )
             e = home.expenses
@@ -1158,9 +1159,6 @@ class _Extractor:
             if isinstance(source, s.Marriage):
                 retimed.append(source.model_copy(update={"year": first_year}))
                 continue
-            if isinstance(source, s.MortgageRenewalEvent):
-                retimed.append(source)  # Always dated in an explicit calendar month.
-                continue
             at = s.At(year=first_year, month=first_month, day=first_day)
             relative = source.at.relative
             if first_day is not None and relative is not None:
@@ -1210,8 +1208,6 @@ def spec_from_model(model) -> s.HouseholdSpec:
 
 def _withholding_spec(policy):
     """The spec form of a core withholding policy."""
-    from dataclasses import asdict
-
     from ..tax.payments import W4
 
     if policy is None:
