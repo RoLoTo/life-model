@@ -263,15 +263,19 @@ class Home(LifeModelAgent):
             )
         )
 
-    def sell(self, selling_cost_percent: float | None = None) -> float:
+    def sell(self, selling_cost_percent: float | None = None, *, when: date | None = None) -> float:
         """Sell the home: pay off the mortgage, realize equity to cash, and tax the gain.
 
         The taxable gain above the §121 primary-residence exclusion (2-of-5-year residency assumed)
         is added to the owner's income. Net proceeds (sale price − selling costs − mortgage payoff)
-        are credited to the owner's bank account. Returns the net proceeds.
+        are credited to the owner's bank account. Returns the net proceeds. The sale date defaults
+        to the first of the simulated month and is used for dated credit secured by the home.
         """
         if self.sold:
             return 0.0
+        sale_date = when if when is not None else date(self.model.year, self.model.month, 1)
+        if (sale_date.year, sale_date.month) != (self.model.year, self.model.month):
+            raise ValueError("A home sale must execute in its scheduled month")
         housing = self.model.config.housing
         if selling_cost_percent is None:
             selling_cost_percent = housing.selling_cost_percent
@@ -280,7 +284,7 @@ class Home(LifeModelAgent):
         selling_costs = sale_price * (selling_cost_percent / 100)
         mortgage_payoff = self.mortgage.principal if self.mortgage is not None else 0.0
         helocs = [line for line in self.person.home_equity_lines if line.home is self]
-        heloc_payoff = sum(line.balance for line in helocs)
+        heloc_payoff = sum(line.sale_payoff_amount(sale_date) for line in helocs)
 
         cost_basis = self.cost_basis + self.total_improvements
         gain = sale_price - selling_costs - cost_basis
@@ -295,7 +299,7 @@ class Home(LifeModelAgent):
         ledger = self.model.ledger
         cause = f"sale of {self.name}"
         for line in helocs:
-            line.pay_off_from_sale(cause)
+            line.pay_off_from_sale(cause, when=sale_date)
         # The home's value leaves the balance sheet: selling costs are spent, the mortgage is paid
         # off from the price, and the rest arrives as cash.
         ledger.post(

@@ -218,7 +218,11 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         ]
 
     if action == "move":
-        return [_life_event(year, _name(event, f"{person.name} moves"), event, _move, builder, person, event)]
+        return [
+            _life_event(
+                year, _name(event, f"{person.name} moves"), event, _move, builder, person, event, timing.day_of(event)
+            )
+        ]
 
     if action == "buy_home":
         name = _name(event, f"{person.name} buys {event.home.name}")
@@ -226,7 +230,11 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
 
     if action == "sell_home":
         name = _name(event, f"{person.name} sells a home")
-        return [_life_event(year, name, event, _sell_home, builder, event.home, event.selling_cost_pct)]
+        return [
+            _life_event(
+                year, name, event, _sell_home, builder, event.home, event.selling_cost_pct, timing.day_of(event)
+            )
+        ]
 
     if action == "one_time_expense":
         name = _name(event, f"{person.name}: one-time expense ${event.amount:,.0f}")
@@ -284,6 +292,10 @@ def _compile_one(builder: "_Builder", timing: EventTiming, event, year: int) -> 
         name = _name(event, f"{person.name} draws ${event.amount:,.0f} on a home equity line")
         return [_life_event(year, name, event, _heloc_draw, builder, event)]
 
+    if action in ("draw_bridge", "repay_bridge"):
+        name = _name(event, f"{person.name}: {action.replace('_', ' ')}")
+        return [_life_event(year, name, event, _bridge_transaction, builder, event)]
+
     if action == "convert_to_roth":
         what = (
             f"${event.amount:,.0f}"
@@ -331,7 +343,7 @@ def _change_job(builder: "_Builder", person, event: s.ChangeJobEvent) -> None:
             builder.build_stock_plan(agent, event.new_job.stock_plan)
 
 
-def _move(builder: "_Builder", person, event: s.MoveEvent) -> None:
+def _move(builder: "_Builder", person, event: s.MoveEvent, day: int | None) -> None:
     if event.state is not None:
         person.state = event.state
         if person.spouse is not None:
@@ -339,7 +351,7 @@ def _move(builder: "_Builder", person, event: s.MoveEvent) -> None:
     if event.end_rental is not None:
         _end_rental(builder, person, event.end_rental)
     if event.sell_home is not None:
-        _sell_home(builder, event.sell_home, None)
+        _sell_home(builder, event.sell_home, None, day)
     if event.buy_home is not None:
         _buy_home(builder, person, event.buy_home)
     if event.new_rental is not None:
@@ -362,8 +374,11 @@ def _buy_home(builder: "_Builder", person, home: s.Home) -> None:
         agent.spec_id = home.id
 
 
-def _sell_home(builder: "_Builder", home_id: str, selling_cost_pct: float | None) -> None:
-    builder.built.items[home_id].sell(selling_cost_pct)
+def _sell_home(builder: "_Builder", home_id: str, selling_cost_pct: float | None, day: int | None) -> None:
+    from datetime import date
+
+    when = date(builder.model.year, builder.model.month, day or 1)
+    builder.built.items[home_id].sell(selling_cost_pct, when=when)
 
 
 def _change_spending(person, amount_annual: float | None, change_pct: float | None) -> None:
@@ -508,6 +523,23 @@ def _prepay_mortgage(builder: "_Builder", person, event: s.MortgagePrepaymentEve
 
 def _heloc_draw(builder: "_Builder", event: s.HelocDrawEvent) -> None:
     builder.built.items[event.heloc].draw(event.amount, for_improvements=event.for_improvements)
+
+
+def _bridge_transaction(builder: "_Builder", event: s.DrawBridgeEvent | s.RepayBridgeEvent) -> None:
+    from datetime import date
+
+    from ..debt.bridge import DatedBridgeLine
+
+    line = builder.built.items.get(event.bridge)
+    if not isinstance(line, DatedBridgeLine) or line.home.sold or line.person.is_deceased:
+        builder.model.event_log.add(Event(f"bridge transaction skipped: {event.bridge} has no active borrower"))
+        return
+    assert event.at.year is not None and event.at.month is not None and event.at.day is not None
+    when = date(event.at.year, event.at.month, event.at.day)
+    if isinstance(event, s.DrawBridgeEvent):
+        line.draw(event.amount, when=when)
+    else:
+        line.repay(when, cash_floor=event.cash_floor)
 
 
 def _disability(person) -> None:
