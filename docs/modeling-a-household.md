@@ -56,6 +56,13 @@ Schedule `renew_mortgage` with the borrower's `person`, the `home` id, and an ef
 remaining amortization. Set `amortization_months` to change the payment count or
 `rate_compounding: semiannual` to use a semiannual quote. Renewal adds no fees or cash-out.
 
+A `savings_policy` can name one spendable opening bank account with `source_bank`. The
+`cash_floor` then applies to that account alone. If you omit `source_bank`, the floor applies
+across spendable bank accounts. The destination must also be an opening account. Optional
+`start_year` and `end_year` bound the actual transfer year, inclusively. Taxable destinations
+receive the sweep at year end. Tax-advantaged accounts and 529s receive it at the start of the
+transfer year, up to that year's contribution room.
+
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
 statements never show (raises, spending growth) are not "missing values": use the economy-linked

@@ -307,8 +307,9 @@ class _Extractor:
     def name_policy_accounts(self, person, pid: str) -> None:
         """Give every account a policy references an id (so the policy can name it)."""
         referenced = [plan.account for plan in person.contribution_plans]
-        if person.savings_policy is not None and person.savings_policy.sweep_to is not None:
-            referenced.append(person.savings_policy.sweep_to)
+        policy = person.savings_policy
+        if policy is not None:
+            referenced += [account for account in (policy.sweep_to, policy.source_bank) if account is not None]
         rc = person.roth_conversion_policy
         if rc is not None:
             referenced += [a for a in (rc.source, rc.target) if a is not None]
@@ -347,7 +348,11 @@ class _Extractor:
         policy = person.savings_policy
         if policy is not None and policy.sweep_to is not None:
             out["savings_policy"] = s.SavingsPolicy(
-                cash_floor=policy.cash_floor, sweep_to=cast(str, self.item_id(policy.sweep_to))
+                cash_floor=policy.cash_floor,
+                sweep_to=cast(str, self.item_id(policy.sweep_to)),
+                source_bank=self.item_id(policy.source_bank) if policy.source_bank is not None else None,
+                start_year=policy.start_year,
+                end_year=policy.end_year,
             )
         rc = person.roth_conversion_policy
         if rc is not None:

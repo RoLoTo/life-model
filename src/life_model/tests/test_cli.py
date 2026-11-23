@@ -79,6 +79,16 @@ class TestRun(CliTestCase):
         self.assertEqual(len(document["model_frame"]), 4)
         self.assertEqual(document["spec"]["meta"]["name"], "Married homeowners")
 
+    def test_run_collects_detailed_positions_independently_of_monthly_aggregates(self):
+        out_dir = self.tmp / "positions"
+        code, payload = invoke_json(
+            "run", "--example", "single_renter", "--years", "1", "--collect-positions", "--out", str(out_dir)
+        )
+        self.assertEqual(code, 0, msg=payload)
+        document = json.loads((out_dir / "result.json").read_text())
+        self.assertIsNone(document["monthly_frame"])
+        self.assertEqual({row["month"] for row in document["monthly_positions"]}, set(range(1, 13)))
+
     def test_run_writes_csv_tables(self):
         out_dir = self.tmp / "csv"
         code, _, err = invoke("run", str(self.spec_path), "--years", "2", "--out", str(out_dir), "--format", "csv")

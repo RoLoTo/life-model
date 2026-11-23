@@ -967,13 +967,24 @@ class _SpecChecker:
                 )
         policy = p.savings_policy
         if policy is not None:
-            account = accounts.get(policy.sweep_to)
+            opening_accounts = {account.id: account for account in p.accounts if account.id is not None}
+            account = opening_accounts.get(policy.sweep_to)
             if account is None:
                 self.error(
                     f"{path}.savings_policy.sweep_to", f"unknown account {policy.sweep_to!r}", code="unknown_reference"
                 )
             elif account.kind not in ("brokerage", "fixed_income", "bank", "traditional_ira", "roth_ira", "hsa", "529"):
                 self.error(f"{path}.savings_policy.sweep_to", f"cannot sweep cash into a {account.kind} account.")
+            if policy.source_bank is not None:
+                source = opening_accounts.get(policy.source_bank)
+                if source is None:
+                    self.error(
+                        f"{path}.savings_policy.source_bank",
+                        f"unknown opening account {policy.source_bank!r} for {p.name}",
+                        code="unknown_reference",
+                    )
+                elif not isinstance(source, s.BankAccount) or source.reserve:
+                    self.error(f"{path}.savings_policy.source_bank", "the source must be a non-reserve bank account.")
         rc = p.roth_conversion
         if rc is not None:
             self.check_conversion_refs(accounts, rc.source, rc.target, f"{path}.roth_conversion")

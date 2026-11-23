@@ -97,7 +97,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 
 | Class | Owner | Required | Optional (default) |
 |---|---|---|---|
-| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'` |
+| `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'`, `*collect_positions=False` |
 | `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None` |
 | `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None` |
 | `Spending` (life_model.people.person) | `model` | `model` | `base_annual=0`, `growth_pct=0`, `*categories=None`, `*schedule=None` |
@@ -132,7 +132,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 | `SocialSecurity` (life_model.insurance.social_security) | `owner` | `owner` | `claim_age=None`, `earnings_history=None`, `*pia_override_monthly=None`, `*fra_from_birth_year=False`, `*spousal_benefit=False`, `*earnings_test=False` |
 | `Donation` (life_model.charity.donation) | `person` | `person`, `charity_name`, `annual_amount` | `donation_type=DonationType.CASH`, `tax_deductible=True`, `frequency_years=1`, `start_year=None`, `end_year=None` |
 | `ContributionPlan` (life_model.policies) |  | `account` | `*amount_annual=None`, `*pct_of_pay=None`, `*source='bank'`, `*months=12`, `*bucket=None`, `*start=None`, `*end=None` |
-| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None` |
+| `SavingsPolicy` (life_model.policies) |  | `*cash_floor` | `*sweep_to=None`, `*source_bank=None`, `*start_year=None`, `*end_year=None` |
 | `RothConversionPolicy` (life_model.policies) |  | — | `*fill_bracket_pct=None`, `*amount_annual=None`, `*source=None`, `*target=None`, `*until_age=None` |
 | `Child` (life_model.dependents.child) | `person` | `person`, `name`, `birth_year` | `*care_expenses_annual=0.0`, `*interest_annual=0.0`, `*dividends_annual=0.0`, `*cost_annual=None`, `*college_cost_annual=None`, `*birth_month=None` |
 
