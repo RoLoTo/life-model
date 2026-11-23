@@ -1022,7 +1022,7 @@ Marry another person in the household (``person`` becomes the head).
 
 ## At
 
-When an event happens: exactly one of ``year``, ``age`` or ``relative``, plus an optional ``month``. Shorthand: an integer is a year (``at: 2030``); ``"2030-07"`` is July 2030. Age timing resolves through ``Person.get_year_at_age`` (the engine's own age semantics), so the builder needs no age arithmetic of its own; see :mod:`life_model.spec.events`.
+When an event happens: exactly one of ``year``, ``age`` or ``relative``, plus an optional ``month``. With an explicit year and month, ``day`` orders events within the same stage. For example, ``at: {year: 2030, month: 7, day: 20}``. Shorthand: an integer is a year (``at: 2030``); ``"2030-07"`` is July 2030. Age timing resolves through ``Person.get_year_at_age`` (the engine's own age semantics), so the builder needs no age arithmetic of its own; see :mod:`life_model.spec.events`.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|
@@ -1031,6 +1031,7 @@ When an event happens: exactly one of ``year``, ``age`` or ``relative``, plus an
 | `person` | string (optional) |  | — |  | Whose age 'age' refers to. Defaults to the event's person. |
 | `relative` | [Relative](#relative) (optional) |  | — |  | Relative to another event. |
 | `month` | integer (optional) | month | — | `LifeEvent.month` | Month (1-12) the event happens in, within the resolved year. Defaults to the first simulated month of that year (January), or for 'age' to the month the person reaches that age (their birth month). |
+| `day` | integer (optional) | day | — | `LifeEvent.day` | Calendar day for ordering events within their stage. Requires an explicit year and month. An unspecified day sorts as day 1. A relative event in its anchor's year and month follows the anchor's day. |
 
 ## Relative
 
@@ -1144,7 +1145,7 @@ A one-time expense added to that year's spending.
 
 ## RecurringExpenseEvent
 
-An expense added every year from ``at`` through ``until`` (inclusive).
+An expense added every year from ``at`` through ``until`` (inclusive). The calendar day must exist in each year the expense runs. A February 29 expense can run once when its recurrence ends in the starting year.
 
 | Field | Type | Unit | Default | Maps to | Description |
 |---|---|---|---|---|---|

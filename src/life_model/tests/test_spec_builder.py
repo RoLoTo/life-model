@@ -12,6 +12,7 @@ import unittest
 import warnings
 from unittest import mock
 
+from ..checks import assert_conservation
 from ..insurance.life_insurance import PremiumIncreaseType
 from ..lifeevents import LifeEvents
 from ..model import LifeModel
@@ -28,6 +29,7 @@ from ..spec import (
     dumps,
     load_example,
     populate_model,
+    spec_from_model,
 )
 from ..tax.federal import FilingStatus
 from .spec_helpers import fixture_config, minimal, not_yet_supported, spec_of
@@ -309,6 +311,117 @@ class TestEventTiming(unittest.TestCase):
         self.assertEqual(
             [(e.year, e.spec_source.action) for e in events],
             [(2027, "one_time_expense"), (2027, "retire"), (2029, "retire")],
+        )
+
+    def test_dated_contribution_can_only_use_cash_available_on_its_day(self):
+        data = minimal(
+            jobs=[],
+            spending={"amount_annual": 0},
+            accounts=[
+                {"id": "cash", "kind": "bank", "balance": 100, "interest_pct": 0},
+                {"id": "investments", "kind": "brokerage", "growth_pct": 0},
+            ],
+        )
+        data["events"] = [
+            {
+                "id": "a_receipt",
+                "at": {"year": 2026, "month": 1, "day": 20},
+                "person": "alex",
+                "action": "add_account",
+                "account": {"id": "additional_cash", "kind": "bank", "balance": 900, "interest_pct": 0},
+            },
+            {
+                "id": "b_contribution",
+                "at": {"year": 2026, "month": 1, "day": 10},
+                "person": "alex",
+                "action": "contribute",
+                "account": "investments",
+                "amount": 1000,
+            },
+        ]
+        for contribution_day, investment_balance, receipt_balance in [(10, 100, 900), (25, 1000, 0)]:
+            with self.subTest(contribution_day=contribution_day):
+                data["events"][1]["at"]["day"] = contribution_day
+                built = build(data, config=fixture_config(), collect="month")
+                built.model.step()
+                self.assertEqual(built.items["cash"].balance, 0)
+                self.assertEqual(built.items["investments"].balance, investment_balance)
+                self.assertEqual(built.items["additional_cash"].balance, receipt_balance)
+                assert_conservation(built.model, monthly=True)
+
+    def test_day_validation_respects_event_timing(self):
+        at = {"year": 2027, "month": 2, "day": 5}
+        cases = [
+            ({"action": "die", "at": at}, "uses an age threshold"),
+            ({"action": "convert_to_roth", "at": at, "fill_bracket_pct": 12}, "must be scheduled in December"),
+            ({"action": "recurring_expense", "at": 2026, "until": at, "amount_annual": 1}, "selects the last year"),
+        ]
+        for event, message in cases:
+            with self.subTest(action=event["action"]):
+                data = minimal()
+                data["events"] = [{"person": "alex", **event}]
+                with self.assertRaisesRegex(SpecValidationError, message):
+                    build(data)
+
+    def test_annual_expense_rejects_a_leap_day_repeated_into_a_common_year(self):
+        for at, until in (
+            ({"year": 2028, "month": 2, "day": 29}, 2030),
+            ({"year": 2028, "month": 2, "day": 29}, None),
+            ({"relative": {"after": "anchor"}}, 2030),
+        ):
+            with self.subTest(at=at, until=until):
+                data = minimal()
+                data["events"] = [
+                    {
+                        "id": "anchor",
+                        "action": "one_time_expense",
+                        "person": "alex",
+                        "at": {"year": 2028, "month": 2, "day": 29},
+                        "amount": 0,
+                    },
+                    {"action": "recurring_expense", "person": "alex", "at": at, "until": until, "amount_annual": 1},
+                ]
+                with self.assertRaisesRegex(SpecValidationError, "2029 has no February 29"):
+                    build(data)
+
+    def test_leap_day_expense_can_run_once_within_the_horizon(self):
+        for end, until in ((2028, 2030), (2030, 2028)):
+            with self.subTest(end=end, until=until):
+                data = minimal()
+                data["meta"]["end_year"] = end
+                data["events"] = [
+                    {
+                        "action": "recurring_expense",
+                        "person": "alex",
+                        "at": {"year": 2028, "month": 2, "day": 29},
+                        "until": until,
+                        "amount_annual": 1,
+                    }
+                ]
+                (expense,) = build(data).life_events.life_events
+                self.assertEqual((expense.year, expense.month, expense.day), (2028, 2, 29))
+
+    def test_relative_event_follows_its_dated_anchor_after_snapshot(self):
+        data = minimal()
+        data["events"] = [
+            {"id": "a_relative", "at": {"relative": {"after": "b_anchor"}}, "person": "alex", "action": "retire"},
+            {
+                "id": "b_anchor",
+                "at": {"year": 2027, "month": 3, "day": 25},
+                "person": "alex",
+                "action": "one_time_expense",
+                "amount": 5,
+            },
+        ]
+        built = build(data)
+        built.model.step_year()
+        snapshot = spec_from_model(built.model)
+        self.assertEqual(snapshot.events[0].at.relative.after, "b_anchor")
+        self.assertEqual(snapshot.events[1].at.day, 25)
+        rebuilt = build_household(snapshot)
+        self.assertEqual(
+            [(event.spec_source.id, event.day) for event in rebuilt.life_events.life_events],
+            [("b_anchor", 25), ("a_relative", 25)],
         )
 
     def test_life_events_agent_only_when_needed(self):

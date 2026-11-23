@@ -537,6 +537,32 @@ class TestEventsInTheirMonth(unittest.TestCase):
         with self.assertRaises(ValueError):
             LifeEvent(2026, "bad month", print, month=13)
 
+    def test_day_orders_events_within_their_stage_and_preserves_ties(self):
+        model = LifeModel(start_year=2026, end_year=2026)
+        fired = []
+        LifeEvents(
+            model,
+            [
+                LifeEvent(2026, "late", fired.append, "late", month=1, day=20),
+                LifeEvent(2026, "first tie", fired.append, "first tie", month=1, day=10),
+                LifeEvent(2026, "no day", fired.append, "no day", month=1),
+                LifeEvent(2026, "second tie", fired.append, "second tie", month=1, day=10),
+                LifeEvent(2026, "early stage", fired.append, "early stage", month=1, day=31, stage="pre_step"),
+                LifeEvent(2026, "late stage", fired.append, "late stage", month=1, day=1, stage="post_step"),
+            ],
+        )
+        model.step()
+        self.assertEqual(fired, ["early stage", "no day", "first tie", "second tie", "late", "late stage"])
+        records = model.event_log.of_kind("life_event_fired")
+        self.assertEqual([record.details.get("scheduled_day") for record in records], [31, None, 10, 10, 20, 1])
+
+    def test_a_day_requires_a_valid_calendar_date(self):
+        LifeEvent(2028, "leap day", print, month=2, day=29)
+        with self.assertRaises(ValueError):
+            LifeEvent(2026, "non-leap day", print, month=2, day=29)
+        with self.assertRaises(ValueError):
+            LifeEvent(2026, "no month", print, day=10)
+
 
 class TestMonthlyConservation(unittest.TestCase):
     """Every month's change in household net worth equals that month's ledger flows."""
