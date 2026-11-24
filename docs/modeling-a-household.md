@@ -78,6 +78,16 @@ non-deductible financing expense, including interest on an automatic draw. Quali
 can count as acquisition debt up to the prior qualifying principal under U.S. rules.
 [IRS Publication 936](https://www.irs.gov/publications/p936)
 
+Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
+home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
+its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
+and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
+explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
+using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
+limit applies to principal. A sale of
+the collateral clears the bridge through the sale date before depositing the net proceeds.
+For same-day events that rely on one another, give them IDs that sort in the intended order.
+
 Schedule `prepay_mortgage` on the last calendar day of a month to apply spendable cash
 to principal after scheduled bills. Each month it uses the same tax holdback as bank-funded
 contributions, reserving cash for this year's accrued unpaid tax and any balance owed from last
@@ -99,16 +109,6 @@ A `renew_mortgage` event keeps the same cap and usage by default. New `prepaymen
 start at zero usage and use the balance immediately before renewal as their default basis. Pass
 `prepayment_privilege: uncapped` to end the cap at renewal. A refinance starts a new loan and
 clears the previous cap.
-
-Use a `bridge_line` under `debts` for approved, short-term credit secured by an existing
-home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
-its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
-and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
-explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
-using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
-limit applies to principal. A sale of
-the collateral clears the bridge through the sale date before depositing the net proceeds.
-For same-day events that rely on one another, give them IDs that sort in the intended order.
 
 Two rules matter most. **Never invent a value**: a missing balance or rate is a question for the
 person, or a labeled assumption, never a plausible-looking number. Behavioral inputs that
