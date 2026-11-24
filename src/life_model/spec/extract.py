@@ -1212,6 +1212,10 @@ class _Extractor:
                 if line.home.sold or line.person.is_deceased:
                     continue
                 source = source.model_copy(update={"person": self.pid(line.person)})
+            if isinstance(source, s.MortgageMaturityEvent):
+                bridge = lines.get(source.bridge)
+                if bridge is not None and bridge.home.sold:
+                    source = source.model_copy(update={"bridge": None})
             events.append(source)
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
