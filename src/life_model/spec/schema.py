@@ -811,6 +811,18 @@ class BankAccount(SpecModel):
     )
 
 
+class CashReserveAccount(SpecModel):
+    """Cash already earmarked at the start, held outside the payment waterfall until release."""
+
+    CORE_CLASS = "CashReserve"
+
+    kind: Literal["cash_reserve"]
+    id: Identifier | None = _id_field("account")
+    name: str = spec_field("Earmarked cash", description="Label used on the ledger.")
+    balance: float = spec_field(description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False)
+    release_on: date = spec_field(description="Calendar date when the balance becomes available.")
+
+
 class FixedIncomeAccount(SpecModel):
     """A CD, Treasury, I bond or bond fund holding (see :mod:`life_model.account.fixed_income`).
 
@@ -1542,6 +1554,7 @@ class Trust(SpecModel):
 
 Account = Annotated[
     BankAccount
+    | CashReserveAccount
     | FixedIncomeAccount
     | BrokerageAccount
     | Job401k
@@ -3013,6 +3026,23 @@ class AddAccountEvent(EventBase):
         return data
 
 
+class ReserveCashEvent(EventBase):
+    """Move cash from an owned bank into an earmark until its scheduled release."""
+
+    action: Literal["reserve_cash"]
+    bank: Identifier = spec_field(description="Id of the owner's funding bank.")
+    amount: float = spec_field(description="Cash to earmark.", unit="USD", gt=0, allow_inf_nan=False)
+    release_on: date = spec_field(description="Release date in a later month, before ordinary events that day.")
+
+    @model_validator(mode="after")
+    def _release_after_funding(self) -> "ReserveCashEvent":
+        if self.at.year is None or self.at.month is None or self.at.day is None:
+            raise ValueError("reserve_cash needs an explicit calendar day")
+        if (self.release_on.year, self.release_on.month) <= (self.at.year, self.at.month):
+            raise ValueError("release_on must be in a later month than funding")
+        return self
+
+
 class ContributeEvent(EventBase):
     """A one-time contribution from the bank into an account.
 
@@ -3261,6 +3291,7 @@ Event = Annotated[
     | RecurringExpenseEvent
     | ChangeSpendingEvent
     | AddAccountEvent
+    | ReserveCashEvent
     | ContributeEvent
     | StopContributionEvent
     | ChangeContributionEvent
@@ -3291,6 +3322,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "recurring_expense",
     "change_spending",
     "add_account",
+    "reserve_cash",
     "contribute",
     "stop_contribution",
     "change_contribution",
