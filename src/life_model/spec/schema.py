@@ -30,6 +30,7 @@ Conventions (enforced by the field types and :mod:`life_model.spec.validate`):
 
 from calendar import monthrange
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -2962,11 +2963,50 @@ class MoveEvent(EventBase):
     new_rental: Rental | None = spec_field(None, description="A rental that starts now.")
 
 
+ClosingMoney = Annotated[NonNegativeMoney, Field(multiple_of=0.01, allow_inf_nan=False)]
+
+
+class HomeCashFunding(SpecModel):
+    """Size a purchase from available bank cash after protecting cash and paying costs."""
+
+    closing_costs: ClosingMoney = spec_field(description="Total cash cost of closing.", unit="USD")
+    cash_floor: ClosingMoney = spec_field(description="Bank cash to retain at closing.", unit="USD")
+    minimum_down_payment: ClosingMoney = spec_field(description="Minimum cash down payment.", unit="USD")
+    mortgage_limit: ClosingMoney = spec_field(description="Maximum financing available at closing.", unit="USD")
+    rate_pct: NonNegativePercent = spec_field(description="Mortgage APR for the new loan.", unit="percent")
+    term_years: int = spec_field(description="Mortgage amortization in years.", unit="years", ge=1)
+    down_payment_fraction: float = spec_field(
+        1.0, description="Share of available cash to put down after costs and retained cash (0 to 1).", ge=0, le=1
+    )
+    extra_down_payment: ClosingMoney = spec_field(
+        0.0, description="Cash to add to the chosen share, subject to available funds.", unit="USD"
+    )
+
+
 class BuyHomeEvent(EventBase):
     """Buy a home: down payment and closing costs are paid from the person's accounts."""
 
     action: Literal["buy_home"]
     home: Home = spec_field(description="The home bought ('purchase' is forced true).")
+    cash_funding: HomeCashFunding | None = spec_field(
+        None, description="Optional rule that sets the down payment, closing costs and mortgage from bank cash."
+    )
+
+    @model_validator(mode="after")
+    def _check_cash_funding(self) -> "BuyHomeEvent":
+        funding = self.cash_funding
+        if funding is None:
+            return self
+        if self.home.down_payment or self.home.mortgage is not None or self.home.closing_cost_pct is not None:
+            raise ValueError("cash_funding supplies home.down_payment, home.mortgage and home.closing_cost_pct")
+        price = Decimal(str(self.home.purchase_price))
+        if not price.is_finite() or price <= 0 or price != price.quantize(Decimal("0.01")):
+            raise ValueError("A cash-funded purchase needs a positive price in whole cents")
+        if funding.minimum_down_payment > price:
+            raise ValueError("minimum_down_payment cannot exceed the purchase price")
+        if self.home.current_value not in (None, self.home.purchase_price):
+            raise ValueError("The home value at a cash-funded closing must match the purchase price")
+        return self
 
 
 class SellHomeEvent(EventBase):
