@@ -6,6 +6,8 @@
 import unittest
 from datetime import date
 
+from pydantic import ValidationError
+
 from ..account.bank import BankAccount
 from ..checks import account_residuals, assert_conservation
 from ..lifeevents import LifeEvent, LifeEvents
@@ -217,3 +219,124 @@ class TestReserveCashEvent(unittest.TestCase):
         codes = {(f.path, f.code) for f in warnings_of(validate_spec(spec_of(data)))}
         self.assertIn(("events[0].release_on", "release_after_run"), codes)
         self.assertIn(("people[0].accounts[2].release_on", "release_after_run"), codes)
+
+    def test_interest_bearing_reserve_accrues_taxable_interest_and_round_trips(self):
+        data = minimal(
+            jobs=[],
+            spending={"amount_annual": 0},
+            accounts=[{"kind": "bank", "id": "bank", "balance": 50000, "interest_pct": 0}],
+        )
+        data["meta"]["end_year"] = 2027
+        data["events"] = [
+            {
+                "id": "earmark",
+                "action": "reserve_cash",
+                "person": "alex",
+                "at": {"year": 2026, "month": 3, "day": 1},
+                "bank": "bank",
+                "amount": 36000,
+                "release_on": "2027-02-01",
+                "interest_pct": 3.0,
+            }
+        ]
+        built = build_household(spec_of(data), config=fixture_config(), collect="month")
+        built.model.checks = "strict"
+        for _ in range(3):
+            built.model.step()
+        # After March (month 3), 1 month of 3% APR (0.25%/mo) = $90 interest accrued in the reserve.
+        self.assertAlmostEqual(built.items["earmark"].balance, 36090.0, places=2)
+        snapshot = spec_from_model(built.model)
+        (reserve_spec,) = [a for a in snapshot.people[0].accounts if a.kind == "cash_reserve"]
+        self.assertEqual(reserve_spec.interest_pct, 3.0)
+        formats: tuple[Format, ...] = ("json", "yaml")
+        reloaded = [
+            build_household(loads(dumps(snapshot, fmt), fmt), config=fixture_config(), collect="month")
+            for fmt in formats
+        ]
+        expected_released = 36000 * (1 + 0.03 / 12) ** 11
+        interest_2026 = 36000 * ((1 + 0.03 / 12) ** 10 - 1)
+        for current in (built, *reloaded):
+            current.model.checks = "strict"
+            while current.model.year == 2026 or current.model.month <= 2:
+                current.model.step()
+            self.assertEqual(current.items["earmark"].balance, 0)
+            self.assertAlmostEqual(current.items["bank"].balance, 14000 + expected_released, places=2)
+            self.assertEqual(account_residuals(current.model, 2027, month=2), {})
+            assert_conservation(current.model, monthly=True)
+        # 10 months of 2026 interest (Mar-Dec) are reported as taxable interest on the 2026 return.
+        (tax_return_2026,) = [r for (year, _unit), r in built.model.tax_returns.items() if year == 2026]
+        self.assertAlmostEqual(tax_return_2026.taxable_interest, interest_2026, places=2)
+        self.assertAlmostEqual(tax_return_2026.agi, interest_2026, places=2)
+
+    def test_opening_interest_bearing_reserve_handles_survivor_and_no_heir_death(self):
+        base = minimal(
+            jobs=[],
+            spending={"amount_annual": 0},
+            accounts=[
+                {"kind": "bank", "id": "bank", "balance": 0, "interest_pct": 0},
+                {
+                    "kind": "cash_reserve",
+                    "id": "held",
+                    "balance": 24000,
+                    "release_on": "2027-06-15",
+                    "interest_pct": 6.0,
+                },
+            ],
+        )
+        base["meta"]["end_year"] = 2027
+        base["events"] = [{"action": "die", "person": "alex", "at": {"year": 2027}}]
+
+        import copy
+
+        # With a surviving spouse, the reserve transfers and continues accruing until release.
+        married = _married(copy.deepcopy(base), spouse_bank=0)
+        married["people"][1]["accounts"][0]["interest_pct"] = 0
+        built_married = self._run(married)
+        expected = 24000 * (1 + 0.06 / 12) ** 17
+        self.assertEqual(built_married.items["held"].balance, 0)
+        self.assertEqual(built_married.items["held"].owner.name, "Sam")
+        self.assertAlmostEqual(built_married.people["sam"].usable_bank_balance, expected, places=2)
+
+        # With no heir, no reserve interest accrues after death.
+        built_single = self._run(base)
+        post_death_interest = [
+            r for r in built_single.model.ledger.to_records() if r["kind"] == "interest" and r["year"] > 2026
+        ]
+        self.assertEqual(post_death_interest, [])
+
+    def test_interest_pct_validation_rejects_negative_and_non_finite(self):
+        from ..account.cash_reserve import CashReserve
+
+        for bad in (-1.0, float("inf"), float("nan")):
+            with self.subTest(core=bad), self.assertRaisesRegex(ValueError, "finite and non-negative"):
+                model = LifeModel(start_year=2026, end_year=2026, config=fixture_config())
+                owner = Person(Family(model), "Pat", 40, 65, Spending(model, base_annual=0))
+                CashReserve(
+                    owner,
+                    name="Earmark",
+                    amount=100,
+                    schedule=LifeEvents(model),
+                    release_on=date(2026, 2, 15),
+                    interest_pct=bad,
+                )
+
+        for bad in (-0.5, float("inf"), float("nan")):
+            data = _reserve_spec(amount=1000, release_on="2026-08-15")
+            data["events"][0]["interest_pct"] = bad
+            with self.subTest(event=bad), self.assertRaises(ValidationError):
+                spec_of(data)
+
+            data2 = minimal(
+                accounts=[
+                    {"kind": "bank", "id": "bank", "balance": 1000, "interest_pct": 0},
+                    {
+                        "kind": "cash_reserve",
+                        "id": "held",
+                        "balance": 500,
+                        "release_on": "2026-08-15",
+                        "interest_pct": bad,
+                    },
+                ]
+            )
+            with self.subTest(account=bad), self.assertRaises(ValidationError):
+                spec_of(data2)

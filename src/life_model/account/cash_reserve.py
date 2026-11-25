@@ -7,7 +7,7 @@
 
 from datetime import date
 from math import isfinite
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from ..base_classes import FinancialAccount
 from ..ledger import FlowKind
@@ -23,13 +23,16 @@ class CashReserve(FinancialAccount):
 
     Supply a bank to transfer cash into the reserve, or omit it for cash already earmarked at
     opening. The balance counts toward net worth (reported as Cash Reserve Balance, not Bank
-    Balance) and earns zero interest. It is never drawn to pay bills, even when the household
+    Balance) and earns zero interest by default, or accrues monthly taxable interest when
+    ``interest_pct`` is positive. It is never drawn to pay bills, even when the household
     borrows. On the release date, the current owner receives the cash before ordinary events that
     day in the same schedule.
     """
 
     BALANCE_STAT = "stat_cash_reserve_balance"
     STATS_OWNED = frozenset({"stat_cash_reserve_balance"})
+    # Accrue interest before tax-unit settlement (0) so it is included on this year's return.
+    STEP_PRIORITY: ClassVar[dict[str, int]] = {"step": -10}
 
     def __init__(
         self,
@@ -40,10 +43,13 @@ class CashReserve(FinancialAccount):
         schedule: LifeEvents,
         release_on: date,
         bank: "BankAccount | None" = None,
+        interest_pct: float = 0.0,
     ):
         model = owner.model
         if not isfinite(amount) or amount <= 0:
             raise ValueError("A cash reserve needs a positive, finite amount")
+        if not isfinite(interest_pct) or interest_pct < 0:
+            raise ValueError("A cash reserve interest rate must be finite and non-negative")
         if schedule.model is not model:
             raise ValueError("The release schedule must belong to the owner's model")
         release_month = (release_on.year, release_on.month)
@@ -59,6 +65,7 @@ class CashReserve(FinancialAccount):
 
         self.name = name
         self.release_on = release_on
+        self.interest_pct = float(interest_pct)
         self.stat_cash_reserve_balance = 0.0
         super().__init__(owner, amount if bank is None else 0)
         if bank is not None:
@@ -74,6 +81,16 @@ class CashReserve(FinancialAccount):
                 day=release_on.day,
             )
             schedule.add(release, before_same_day=True)
+
+    def step(self) -> None:
+        if not self.interest_pct or self.balance <= 0 or self.owner.is_deceased:
+            return
+        from ..tax.income import IncomeType
+
+        interest = self.balance * (self.interest_pct / 1200)
+        super().deposit(interest)
+        self.model.ledger.post(interest, FlowKind.INTEREST, to_account=self, source=self.name, agent=self.owner)
+        self.add_income(IncomeType.INTEREST, interest, source="bank_interest")
 
     def withdraw(self, amount: float) -> float:
         raise ValueError("Cash leaves the reserve through its scheduled release")

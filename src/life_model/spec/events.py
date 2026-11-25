@@ -533,6 +533,7 @@ def _reserve_cash(builder: "_Builder", person, event: s.ReserveCashEvent, name: 
         bank=bank,
         schedule=builder.event_schedule(),
         release_on=event.release_on,
+        interest_pct=event.interest_pct,
     )
     builder.model.event_log.add(
         Event(EventKind.CASH_RESERVED, person=owner, amount=amount, account=reserve, cause=name, **details)

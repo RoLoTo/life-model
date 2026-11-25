@@ -534,6 +534,7 @@ class _Extractor:
                         name=account.name,
                         balance=account.balance,
                         release_on=account.release_on,
+                        interest_pct=account.interest_pct,
                     )
                 )
         for holding in person.fixed_income_holdings:
