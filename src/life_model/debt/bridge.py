@@ -32,11 +32,14 @@ def _cents(amount: Decimal) -> Decimal:
 class DatedBridgeLine(HomeEquityLine):
     """Approved credit secured by the borrower's home.
 
-    Accrued interest counts as a liability. The credit limit applies to drawn principal.
-    ``interest_mode`` controls whether actual-days/365 interest accrues simply on drawn
-    principal (``"simple"``), capitalizes monthly (``"compound_monthly"``), or is billed
-    monthly through the household payment waterfall (``"monthly_interest"``).
+    Accrued interest counts as a liability. The credit limit applies to drawn principal plus any
+    capitalized interest. ``interest_mode`` controls whether actual-days/365 interest accrues
+    simply on drawn principal (``"simple"``), capitalizes into the interest-bearing balance at
+    each calendar month end (``"compound_monthly"``), or is billed monthly through the household
+    payment waterfall (``"monthly_interest"``).
     """
+
+    interest_sink = "bridge interest"
 
     def __init__(
         self,
@@ -100,7 +103,11 @@ class DatedBridgeLine(HomeEquityLine):
         self.interest_mode: BridgeInterestMode = interest_mode
 
     def get_available_credit(self) -> float:
-        return 0.0 if self.home.sold else float(max(_ZERO, Decimal(str(self.credit_limit)) - self.drawn_principal))
+        return (
+            0.0
+            if self.home.sold
+            else float(max(_ZERO, Decimal(str(self.credit_limit)) - self.drawn_principal - self.capitalized_interest))
+        )
 
     def _interest_at(self, when: date) -> Decimal:
         if self.accrued_through is None:
@@ -126,7 +133,7 @@ class DatedBridgeLine(HomeEquityLine):
             charged,
             FlowKind.DEBT_SERVICE,
             from_account=self,
-            sink="bridge interest",
+            sink=self.interest_sink,
             cause=f"Bridge interest accrued through {when.isoformat()}",
             agent=self.person,
         )
@@ -161,6 +168,8 @@ class DatedBridgeLine(HomeEquityLine):
 
     @property
     def monthly_payment(self) -> float:
+        """Approximate monthly interest estimate (``rate / 12`` on drawn principal) under
+        ``monthly_interest``; actual billing in :meth:`service_month` uses actual days/365."""
         if self.interest_mode != "monthly_interest" or not self.drawn_principal:
             return 0.0
         rate = Decimal(str(self.yearly_interest_rate)) / 1200

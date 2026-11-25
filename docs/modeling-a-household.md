@@ -107,10 +107,13 @@ Use a `bridge_line` under `debts` for approved, short-term credit secured by an 
 home. Set the `home` id, `credit_limit`, and annual `rate_pct`. A `draw_bridge` event deposits
 its `amount` in spendable bank cash. A `repay_bridge` event draws spendable cash above `cash_floor`
 and carries any gap as `shortfall_debt` due with the next month's bills. Both events require an
-explicit calendar date and follow the current owner of the line. Interest accrues on drawn principal
-using actual days divided by 365. Outstanding interest counts toward liabilities, and the approved
-limit applies to principal. A sale of
-the collateral clears the bridge through the sale date before depositing the net proceeds.
+explicit calendar date and follow the current owner of the line. Interest accrues using actual
+days divided by 365 according to `interest_mode`: `"simple"` (the default) accrues on drawn
+principal only, `"compound_monthly"` capitalizes unpaid interest at each calendar month end (not
+on draw-date anniversaries), and `"monthly_interest"` bills accrued interest monthly through the
+household payment waterfall while keeping principal flat. Outstanding interest counts toward
+liabilities, and the approved limit applies to drawn principal plus any capitalized interest. A
+sale of the collateral clears the bridge through the sale date before depositing the net proceeds.
 For same-day events that rely on one another, give them IDs that sort in the intended order.
 
 To set cash aside for a later date, such as a deposit held for a closing, schedule `reserve_cash`

@@ -704,7 +704,7 @@ Builds: `HomeEquityLine`.
 
 ## BridgeLine
 
-Approved credit secured by the borrower's home with actual-days/365 interest. ``interest_mode`` controls whether interest accrues simply on drawn principal (``"simple"``), capitalizes into the interest-bearing balance at each month boundary (``"compound_monthly"``), or is billed monthly through the household payment waterfall (``"monthly_interest"``).
+Approved credit secured by the borrower's home with actual-days/365 interest. ``interest_mode`` controls whether interest accrues simply on drawn principal (``"simple"``), capitalizes into the interest-bearing balance at each calendar month end (``"compound_monthly"``), or is billed monthly through the household payment waterfall (``"monthly_interest"``).
 
 Builds: `DatedBridgeLine`.
 
@@ -714,9 +714,9 @@ Builds: `DatedBridgeLine`.
 | `id` | string (optional) |  | — |  | Optional identifier for this debt, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
 | `home` | string |  | **required** | `DatedBridgeLine.home` | Id of the home securing the line. |
 | `name` | string (optional) |  | — |  | Display name. |
-| `credit_limit` | number | USD | **required** |  | Maximum drawn principal in whole cents. |
+| `credit_limit` | number | USD | **required** |  | Maximum drawn principal plus capitalized interest in whole cents. |
 | `rate_pct` | number | percent | **required** |  | Annual interest rate. |
-| `interest_mode` | `"simple"` \\| `"compound_monthly"` \\| `"monthly_interest"` |  | `"simple"` |  | How actual-days/365 interest is handled: 'simple' accrues on drawn principal only, 'compound_monthly' capitalizes unpaid interest at each month boundary, and 'monthly_interest' bills accrued interest monthly through the household waterfall. |
+| `interest_mode` | `"simple"` \\| `"compound_monthly"` \\| `"monthly_interest"` |  | `"simple"` |  | How actual-days/365 interest is handled: 'simple' accrues on drawn principal only, 'compound_monthly' capitalizes unpaid interest at each calendar month end (counting capitalized interest toward credit_limit headroom), and 'monthly_interest' bills accrued interest monthly through the household waterfall. |
 | `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal in whole cents. |
 | `capitalized_interest` | number | USD | `0.0` |  | Opening interest already capitalized into the interest-bearing balance in whole cents (only valid for 'compound_monthly' with drawn principal). |
 | `accrued_interest` | number | USD | `0.0` |  | Opening unpaid interest, which can include fractional cents. |

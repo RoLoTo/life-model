@@ -295,7 +295,10 @@ class TestDatedBridge(unittest.TestCase):
         line = built.items["line"]
         self.assertGreater(line.capitalized_interest, 0)
         self.assertEqual(line.accrued_interest, 0)
-        self.assertEqual(line.get_available_credit(), 6500)
+        self.assertAlmostEqual(line.get_available_credit(), 60000 - 53500 - float(line.capitalized_interest), places=2)
+        # Capitalized interest consumes credit headroom: drawing up to 6,500 now exceeds the 60,000 limit.
+        with self.assertRaisesRegex(ValueError, "approved credit"):
+            line.draw(6500, when=date(2026, 7, 1))
         snapshot = spec_from_model(built.model)
         self.assertEqual(snapshot.people[0].debts[0].interest_mode, "compound_monthly")
         self.assertEqual(snapshot.people[0].debts[0].capitalized_interest, float(line.capitalized_interest))
@@ -403,6 +406,14 @@ class TestDatedBridge(unittest.TestCase):
             assert_conservation(current.model, monthly=True)
         total_interest = round(sum(built.items["line"].stat_interest_payment_history), 2)
         self.assertAlmostEqual(total_interest, 53500 * 0.052, delta=0.10)
+        self.assertAlmostEqual(
+            booked_bridge_interest(built.model, 2026) + booked_bridge_interest(built.model, 2027),
+            total_interest,
+            places=2,
+        )
+        self.assertFalse(
+            [r for r in built.model.ledger.to_records() if r["sink"] == f"interest: {built.items['line'].name}"]
+        )
         built.model.run()
         result = built.model.result()
         self.assertAlmostEqual(float(result.model_frame["Interest Paid"].sum()), total_interest, places=2)

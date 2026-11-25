@@ -1809,8 +1809,9 @@ class BridgeLine(SpecModel):
     """Approved credit secured by the borrower's home with actual-days/365 interest.
 
     ``interest_mode`` controls whether interest accrues simply on drawn principal (``"simple"``),
-    capitalizes into the interest-bearing balance at each month boundary (``"compound_monthly"``),
-    or is billed monthly through the household payment waterfall (``"monthly_interest"``).
+    capitalizes into the interest-bearing balance at each calendar month end
+    (``"compound_monthly"``), or is billed monthly through the household payment waterfall
+    (``"monthly_interest"``).
     """
 
     CORE_CLASS = "DatedBridgeLine"
@@ -1820,15 +1821,19 @@ class BridgeLine(SpecModel):
     home: Identifier = spec_field(description="Id of the home securing the line.", core="DatedBridgeLine.home")
     name: str | None = spec_field(None, description="Display name.")
     credit_limit: NonNegativeMoney = spec_field(
-        description="Maximum drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+        description="Maximum drawn principal plus capitalized interest in whole cents.",
+        unit="USD",
+        multiple_of=0.01,
+        allow_inf_nan=False,
     )
     rate_pct: NonNegativePercent = spec_field(description="Annual interest rate.", unit="percent")
     interest_mode: BridgeInterestMode = spec_field(
         "simple",
         description=(
             "How actual-days/365 interest is handled: 'simple' accrues on drawn principal only, "
-            "'compound_monthly' capitalizes unpaid interest at each month boundary, and "
-            "'monthly_interest' bills accrued interest monthly through the household waterfall."
+            "'compound_monthly' capitalizes unpaid interest at each calendar month end (counting "
+            "capitalized interest toward credit_limit headroom), and 'monthly_interest' bills accrued "
+            "interest monthly through the household waterfall."
         ),
     )
     drawn_principal: NonNegativeMoney = spec_field(
