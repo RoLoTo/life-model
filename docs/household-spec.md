@@ -1198,6 +1198,7 @@ Size a purchase from available bank cash after protecting cash and paying costs.
 | `minimum_down_payment` | number | USD | **required** |  | Minimum cash down payment. |
 | `mortgage_limit` | number | USD | **required** |  | Maximum financing available at closing. |
 | `rate_pct` | number | percent | **required** |  | Mortgage APR for the new loan. |
+| `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted rate (semiannual quotes convert to the monthly equivalent). |
 | `term_years` | integer | years | **required** |  | Mortgage amortization in years. |
 | `down_payment_fraction` | number |  | `1.0` |  | Share of available cash to put down after costs and retained cash (0 to 1). |
 | `extra_down_payment` | number | USD | `0.0` |  | Cash to add to the chosen share, subject to available funds. |
@@ -1282,7 +1283,7 @@ Move cash from an owned bank into an earmark until its scheduled release.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"reserve_cash"` |  | **required** |  |  |
 | `bank` | string |  | **required** |  | Id of the owner's funding bank. |
-| `amount` | number | USD | **required** |  | Cash to earmark. |
+| `amount` | number | USD | **required** |  | Cash to earmark (less when the bank's cash after the year's unpaid tax falls short). |
 | `release_on` | date |  | **required** |  | Release date in a later month, before ordinary events that day. |
 
 ## ContributeEvent

@@ -63,6 +63,7 @@ at the year end.
 | 529 Balance | `stat_529_balance` | EXTRA_STATS | Plan529 | sum | yes |  | 529 education plan balances at year end. |
 | Fixed Income Balance | `stat_fixed_income_balance` | EXTRA_STATS | FixedIncomeHolding | sum | yes |  | CDs, Treasuries, I bonds and bond funds (fixed-income holdings) at year end. |
 | Inherited IRA Balance | `stat_inherited_ira_balance` | EXTRA_STATS | InheritedPretaxAccount | sum | yes |  | Inherited (10-year rule) IRA balances. |
+| Cash Reserve Balance | `stat_cash_reserve_balance` | EXTRA_STATS | CashReserve | sum | yes |  | Earmarked cash held until its release date (counted in net worth, not in Bank Balance). |
 | Annuity Balance | `stat_annuity_balance` | EXTRA_STATS | Annuity | sum | yes |  | Annuity accumulation balances plus annuitized reserves. |
 | DAF Balance | `stat_daf_balance` | EXTRA_STATS | DonorAdvisedFund | sum | yes |  | Donor-advised fund balances (not counted in net worth). |
 | Trust Balance | `stat_trust_balance` | EXTRA_STATS | Trust | sum | yes |  | Trust balances (only revocable trusts count in net worth). |
@@ -350,3 +351,5 @@ notebook table (`_repr_html_`) shows the life story; detail kinds are kept but n
 | `mortgage_renewed` |  | A mortgage's outstanding principal was repriced (amount: unchanged principal; details: date, rate_pct, rate_compounding, amortization_months, monthly_payment). |
 | `mortgage_paid_at_maturity` |  | A mortgage was paid off (amount: principal plus final interest; details: date, principal, interest_due, cash_floor, shortfall_debt, bridge_draw when a bridge is supplied). |
 | `mortgage_prepayment` |  | Month-end cash was applied to mortgage principal (amount: principal paid; details: date, cash_before, cash_floor, tax_holdback, cash_fraction, requested, limit_remaining when capped). |
+| `cash_reserved` |  | Bank cash was earmarked until a release date (amount: cash earmarked, which is less than requested when the funding bank's cash after the year's unpaid tax falls short; details: date, requested, available, tax_holdback, release_on). |
+| `closing_shortfall` |  | A cash-funded closing lacked the bank cash its terms require, so the purchase closed on the required down payment through the payment waterfall (amount: the bank cash missing; details: required, available). |

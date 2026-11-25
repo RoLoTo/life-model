@@ -817,7 +817,9 @@ class CashReserveAccount(SpecModel):
     kind: Literal["cash_reserve"]
     id: Identifier | None = _id_field("account")
     name: str = spec_field("Earmarked cash", description="Label used on the ledger.")
-    balance: float = spec_field(description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False)
+    balance: NonNegativeMoney = spec_field(
+        description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False
+    )
     release_on: date = spec_field(description="Calendar date when the balance becomes available.")
 
 
@@ -3000,6 +3002,9 @@ class HomeCashFunding(SpecModel):
     minimum_down_payment: ClosingMoney = spec_field(description="Minimum cash down payment.", unit="USD")
     mortgage_limit: ClosingMoney = spec_field(description="Maximum financing available at closing.", unit="USD")
     rate_pct: NonNegativePercent = spec_field(description="Mortgage APR for the new loan.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly", description="Compounding of the quoted rate (semiannual quotes convert to the monthly equivalent)."
+    )
     term_years: int = spec_field(description="Mortgage amortization in years.", unit="years", ge=1)
     down_payment_fraction: float = spec_field(
         1.0, description="Share of available cash to put down after costs and retained cash (0 to 1).", ge=0, le=1
@@ -3097,7 +3102,12 @@ class ReserveCashEvent(EventBase):
 
     action: Literal["reserve_cash"]
     bank: Identifier = spec_field(description="Id of the owner's funding bank.")
-    amount: float = spec_field(description="Cash to earmark.", unit="USD", gt=0, allow_inf_nan=False)
+    amount: NonNegativeMoney = spec_field(
+        description="Cash to earmark (less when the bank's cash after the year's unpaid tax falls short).",
+        unit="USD",
+        gt=0,
+        allow_inf_nan=False,
+    )
     release_on: date = spec_field(description="Release date in a later month, before ordinary events that day.")
 
     @model_validator(mode="after")

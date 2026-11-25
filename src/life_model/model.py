@@ -146,6 +146,8 @@ class EventKind(str, Enum):
     MORTGAGE_RENEWED = "mortgage_renewed"
     MORTGAGE_PAID_AT_MATURITY = "mortgage_paid_at_maturity"
     MORTGAGE_PREPAYMENT = "mortgage_prepayment"
+    CASH_RESERVED = "cash_reserved"
+    CLOSING_SHORTFALL = "closing_shortfall"
 
     @property
     def is_detail(self) -> bool:
@@ -179,6 +181,12 @@ EVENT_KIND_DOCS: dict[str, str] = {
     "details: date, principal, interest_due, cash_floor, shortfall_debt, bridge_draw when a bridge is supplied).",
     "mortgage_prepayment": "Month-end cash was applied to mortgage principal (amount: principal paid; "
     "details: date, cash_before, cash_floor, tax_holdback, cash_fraction, requested, limit_remaining when capped).",
+    "cash_reserved": "Bank cash was earmarked until a release date (amount: cash earmarked, which is less than "
+    "requested when the funding bank's cash after the year's unpaid tax falls short; details: date, requested, "
+    "available, tax_holdback, release_on).",
+    "closing_shortfall": "A cash-funded closing lacked the bank cash its terms require, so the purchase closed on the "
+    "required down payment through the payment waterfall (amount: the bank cash missing; details: required, "
+    "available).",
 }
 
 _DETAIL_KINDS = frozenset(
@@ -524,6 +532,11 @@ class LifeModel(mesa.Model):
             "CDs, Treasuries, I bonds and bond funds (fixed-income holdings) at year end.",
         ),
         MoneyStat("stat_inherited_ira_balance", "Inherited IRA Balance", "Inherited (10-year rule) IRA balances."),
+        MoneyStat(
+            "stat_cash_reserve_balance",
+            "Cash Reserve Balance",
+            "Earmarked cash held until its release date (counted in net worth, not in Bank Balance).",
+        ),
         MoneyStat("stat_annuity_balance", "Annuity Balance", "Annuity accumulation balances plus annuitized reserves."),
         MoneyStat("stat_daf_balance", "DAF Balance", "Donor-advised fund balances (not counted in net worth)."),
         MoneyStat("stat_trust_balance", "Trust Balance", "Trust balances (only revocable trusts count in net worth)."),
