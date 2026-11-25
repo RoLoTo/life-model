@@ -220,6 +220,17 @@ class TestReserveCashEvent(unittest.TestCase):
         self.assertIn(("events[0].release_on", "release_after_run"), codes)
         self.assertIn(("people[0].accounts[2].release_on", "release_after_run"), codes)
 
+    @staticmethod
+    def _expected_reserve_balance(principal: float, rate_pct: float, start: date, end: date) -> float:
+        balance = principal
+        cur = start
+        while cur < end:
+            boundary = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
+            stop = min(boundary, end)
+            balance += balance * (rate_pct / 100) * (stop - cur).days / 365
+            cur = stop
+        return balance
+
     def test_interest_bearing_reserve_accrues_taxable_interest_and_round_trips(self):
         data = minimal(
             jobs=[],
@@ -232,10 +243,10 @@ class TestReserveCashEvent(unittest.TestCase):
                 "id": "earmark",
                 "action": "reserve_cash",
                 "person": "alex",
-                "at": {"year": 2026, "month": 3, "day": 1},
+                "at": {"year": 2026, "month": 3, "day": 15},
                 "bank": "bank",
                 "amount": 36000,
-                "release_on": "2027-02-01",
+                "release_on": "2027-02-10",
                 "interest_pct": 3.0,
             }
         ]
@@ -243,8 +254,9 @@ class TestReserveCashEvent(unittest.TestCase):
         built.model.checks = "strict"
         for _ in range(3):
             built.model.step()
-        # After March (month 3), 1 month of 3% APR (0.25%/mo) = $90 interest accrued in the reserve.
-        self.assertAlmostEqual(built.items["earmark"].balance, 36090.0, places=2)
+        # After March (month 3), 17 days (Mar 15 -> Apr 1) of 3% APR accrued in the reserve.
+        after_march = self._expected_reserve_balance(36000, 3.0, date(2026, 3, 15), date(2026, 4, 1))
+        self.assertAlmostEqual(built.items["earmark"].balance, after_march, places=2)
         snapshot = spec_from_model(built.model)
         (reserve_spec,) = [a for a in snapshot.people[0].accounts if a.kind == "cash_reserve"]
         self.assertEqual(reserve_spec.interest_pct, 3.0)
@@ -253,8 +265,8 @@ class TestReserveCashEvent(unittest.TestCase):
             build_household(loads(dumps(snapshot, fmt), fmt), config=fixture_config(), collect="month")
             for fmt in formats
         ]
-        expected_released = 36000 * (1 + 0.03 / 12) ** 11
-        interest_2026 = 36000 * ((1 + 0.03 / 12) ** 10 - 1)
+        expected_released = self._expected_reserve_balance(36000, 3.0, date(2026, 3, 15), date(2027, 2, 10))
+        interest_2026 = self._expected_reserve_balance(36000, 3.0, date(2026, 3, 15), date(2027, 1, 1)) - 36000
         for current in (built, *reloaded):
             current.model.checks = "strict"
             while current.model.year == 2026 or current.model.month <= 2:
@@ -263,10 +275,53 @@ class TestReserveCashEvent(unittest.TestCase):
             self.assertAlmostEqual(current.items["bank"].balance, 14000 + expected_released, places=2)
             self.assertEqual(account_residuals(current.model, 2027, month=2), {})
             assert_conservation(current.model, monthly=True)
-        # 10 months of 2026 interest (Mar-Dec) are reported as taxable interest on the 2026 return.
+        # 2026 actual-days interest (Mar 15 -> Jan 1) is reported as taxable interest on the 2026 return.
         (tax_return_2026,) = [r for (year, _unit), r in built.model.tax_returns.items() if year == 2026]
         self.assertAlmostEqual(tax_return_2026.taxable_interest, interest_2026, places=2)
         self.assertAlmostEqual(tax_return_2026.agi, interest_2026, places=2)
+
+    def test_interest_accrues_by_actual_days_across_open_and_release_dates(self):
+        cases = [
+            ("mar1_to_jun30", (2026, 3, 1), "2026-06-30", 2026),
+            ("mar31_to_jun1", (2026, 3, 31), "2026-06-01", 2026),
+            ("dec20_to_jan10", (2026, 12, 20), "2027-01-10", 2027),
+        ]
+        results = {}
+        for label, opened, release_str, end_year in cases:
+            with self.subTest(case=label):
+                data = minimal(
+                    jobs=[],
+                    spending={"amount_annual": 0},
+                    accounts=[{"kind": "bank", "id": "bank", "balance": 10000, "interest_pct": 0}],
+                )
+                data["meta"]["end_year"] = end_year
+                data["events"] = [
+                    {
+                        "id": "earmark",
+                        "action": "reserve_cash",
+                        "person": "alex",
+                        "at": {"year": opened[0], "month": opened[1], "day": opened[2]},
+                        "bank": "bank",
+                        "amount": 10000,
+                        "release_on": release_str,
+                        "interest_pct": 12.0,
+                    }
+                ]
+                built = self._run(data)
+                open_date = date(*opened)
+                release_date = date.fromisoformat(release_str)
+                expected = self._expected_reserve_balance(10000, 12.0, open_date, release_date)
+                self.assertEqual(built.items["earmark"].balance, 0)
+                self.assertAlmostEqual(built.items["bank"].balance, expected, places=2)
+                results[label] = built.items["bank"].balance - 10000
+                if label == "dec20_to_jan10":
+                    by_year = {year: r.taxable_interest for (year, _u), r in built.model.tax_returns.items()}
+                    year1 = self._expected_reserve_balance(10000, 12.0, open_date, date(2027, 1, 1)) - 10000
+                    year2 = expected - (10000 + year1)
+                    self.assertAlmostEqual(by_year[2026], year1, places=2)
+                    self.assertAlmostEqual(by_year[2027], year2, places=2)
+        self.assertGreater(results["mar1_to_jun30"], results["mar31_to_jun1"] + 150)
+        self.assertLess(results["dec20_to_jan10"], 75)
 
     def test_opening_interest_bearing_reserve_handles_survivor_and_no_heir_death(self):
         base = minimal(
@@ -292,7 +347,7 @@ class TestReserveCashEvent(unittest.TestCase):
         married = _married(copy.deepcopy(base), spouse_bank=0)
         married["people"][1]["accounts"][0]["interest_pct"] = 0
         built_married = self._run(married)
-        expected = 24000 * (1 + 0.06 / 12) ** 17
+        expected = self._expected_reserve_balance(24000, 6.0, date(2026, 1, 1), date(2027, 6, 15))
         self.assertEqual(built_married.items["held"].balance, 0)
         self.assertEqual(built_married.items["held"].owner.name, "Sam")
         self.assertAlmostEqual(built_married.people["sam"].usable_bank_balance, expected, places=2)
@@ -319,6 +374,27 @@ class TestReserveCashEvent(unittest.TestCase):
                     release_on=date(2026, 2, 15),
                     interest_pct=bad,
                 )
+
+        model = LifeModel(start_year=2026, end_year=2026, config=fixture_config())
+        owner = Person(Family(model), "Pat", 40, 65, Spending(model, base_annual=0))
+        with self.assertRaisesRegex(ValueError, "current simulation month"):
+            CashReserve(
+                owner,
+                name="Earmark",
+                amount=100,
+                schedule=LifeEvents(model),
+                release_on=date(2026, 3, 15),
+                funded_on=date(2026, 2, 1),
+            )
+        with self.assertRaisesRegex(ValueError, "after release_on"):
+            CashReserve(
+                owner,
+                name="Earmark",
+                amount=100,
+                schedule=LifeEvents(model),
+                release_on=date(2026, 1, 10),
+                funded_on=date(2026, 1, 15),
+            )
 
         for bad in (-0.5, float("inf"), float("nan")):
             data = _reserve_spec(amount=1000, release_on="2026-08-15")

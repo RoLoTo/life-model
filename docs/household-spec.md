@@ -339,7 +339,7 @@ Builds: `CashReserve`.
 | `name` | string |  | `"Earmarked cash"` |  | Label used on the ledger. |
 | `balance` | number | USD | **required** |  | Starting earmarked balance. |
 | `release_on` | date |  | **required** |  | Calendar date when the balance becomes available. |
-| `interest_pct` | number | percent | `0.0` |  | Annual nominal interest rate compounded monthly while earmarked; taxed as ordinary interest. |
+| `interest_pct` | number | percent | `0.0` |  | Annual interest rate accrued using actual days/365 (compounded at calendar month ends and booked through release_on); taxed as ordinary interest. |
 
 ## FixedIncomeAccount
 
@@ -1286,7 +1286,7 @@ Move cash from an owned bank into an earmark until its scheduled release.
 | `bank` | string |  | **required** |  | Id of the owner's funding bank. |
 | `amount` | number | USD | **required** |  | Cash to earmark (less when the bank's cash after the year's unpaid tax falls short). |
 | `release_on` | date |  | **required** |  | Release date in a later month, before ordinary events that day. |
-| `interest_pct` | number | percent | `0.0` |  | Annual nominal interest rate compounded monthly while earmarked; taxed as ordinary interest. |
+| `interest_pct` | number | percent | `0.0` |  | Annual interest rate accrued using actual days/365 (compounded at calendar month ends and booked through release_on); taxed as ordinary interest. |
 
 ## ContributeEvent
 

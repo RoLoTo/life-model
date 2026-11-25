@@ -823,7 +823,10 @@ class CashReserveAccount(SpecModel):
     release_on: date = spec_field(description="Calendar date when the balance becomes available.")
     interest_pct: NonNegativePercent = spec_field(
         0.0,
-        description="Annual nominal interest rate compounded monthly while earmarked; taxed as ordinary interest.",
+        description=(
+            "Annual interest rate accrued using actual days/365 (compounded at calendar month ends and "
+            "booked through release_on); taxed as ordinary interest."
+        ),
         unit="percent",
         allow_inf_nan=False,
     )
@@ -3117,7 +3120,10 @@ class ReserveCashEvent(EventBase):
     release_on: date = spec_field(description="Release date in a later month, before ordinary events that day.")
     interest_pct: NonNegativePercent = spec_field(
         0.0,
-        description="Annual nominal interest rate compounded monthly while earmarked; taxed as ordinary interest.",
+        description=(
+            "Annual interest rate accrued using actual days/365 (compounded at calendar month ends and "
+            "booked through release_on); taxed as ordinary interest."
+        ),
         unit="percent",
         allow_inf_nan=False,
     )

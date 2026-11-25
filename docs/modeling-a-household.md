@@ -118,8 +118,9 @@ with the funding `bank` (an account the person owns), the `amount` and a `releas
 later month, at an explicit `at: {year, month, day}`. Cash already earmarked on the statement date
 is an opening `cash_reserve` account with its `balance` and `release_on`. Earmarked cash counts in
 net worth (the model frame reports it as Cash Reserve Balance, not Bank Balance), earns no interest
-by default (set `interest_pct` to accrue monthly taxable interest), and is never drawn to pay bills,
-even when the household has to borrow. On the release date it
+by default (set `interest_pct` to accrue taxable ordinary interest using actual days/365,
+compounded at calendar month ends and booked through `release_on`), and is never drawn to pay
+bills, even when the household has to borrow. On the release date it
 returns to the bank before that day's other events, so a same-day closing can use it. The earmark
 takes at most the bank's balance and the owner's cash after the year's unpaid tax; the
 `cash_reserved` event records the requested and earmarked amounts. After the person's death the

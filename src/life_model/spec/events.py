@@ -516,8 +516,9 @@ def _reserve_cash(builder: "_Builder", person, event: s.ReserveCashEvent, name: 
     year, month, day = event.at.year, event.at.month, event.at.day
     if year is None or month is None or day is None:
         raise ValueError("reserve_cash needs an explicit calendar day")
+    funded_on = date(year, month, day)
     details = {
-        "date": date(year, month, day).isoformat(),
+        "date": funded_on.isoformat(),
         "requested": event.amount,
         "available": available,
         "tax_holdback": snap_money(max(0.0, owner.usable_bank_balance - after_tax)),
@@ -534,6 +535,7 @@ def _reserve_cash(builder: "_Builder", person, event: s.ReserveCashEvent, name: 
         schedule=builder.event_schedule(),
         release_on=event.release_on,
         interest_pct=event.interest_pct,
+        funded_on=funded_on,
     )
     builder.model.event_log.add(
         Event(EventKind.CASH_RESERVED, person=owner, amount=amount, account=reserve, cause=name, **details)
