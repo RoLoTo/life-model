@@ -36,10 +36,11 @@ class Family(LifeModelAgent):
                 units use (see :data:`~life_model.people.tax_unit.DEFAULT_WITHDRAWAL_ORDER`, the
                 default: bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve).
                 Keyword-only.
-            withdrawal_floors (Mapping[str, float], optional): Minimum combined balance to keep in
-                each named non-bank waterfall source (per tax unit). Waterfall draws stop at each
-                floor and spill to the next source; statutory RMDs and explicit events still run.
-                Keyword-only.
+            withdrawal_floors (Mapping[str, float], optional): Household-wide minimum combined
+                balance to keep in each named non-bank waterfall source (``"roth"`` covers both
+                ``"roth_basis"`` and ``"roth_earnings"``). Waterfall draws stop at each floor and
+                spill to the next source; statutory RMDs, HSA medical reimbursements, Roth
+                conversions, contribution plans and explicit events still run. Keyword-only.
         """
         super().__init__(model)
         self.members = list(args)
@@ -47,7 +48,17 @@ class Family(LifeModelAgent):
         # normalizes it.
         validate_withdrawal_order(withdrawal_order)
         self.withdrawal_order = DEFAULT_WITHDRAWAL_ORDER if withdrawal_order is None else tuple(withdrawal_order)
-        self.withdrawal_floors = validate_withdrawal_floors(withdrawal_floors)
+        self._withdrawal_floors: dict[str, float] = {}
+        self.withdrawal_floors = withdrawal_floors
+
+    @property
+    def withdrawal_floors(self) -> dict[str, float]:
+        """Household-wide minimum combined balance to keep in each named non-bank waterfall source."""
+        return dict(self._withdrawal_floors)
+
+    @withdrawal_floors.setter
+    def withdrawal_floors(self, value: "Mapping[str, float] | None") -> None:
+        self._withdrawal_floors = validate_withdrawal_floors(value)
 
     @property
     def federal_deductions(self) -> float:

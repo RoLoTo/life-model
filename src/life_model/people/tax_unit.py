@@ -86,7 +86,12 @@ def validate_withdrawal_order(order: "tuple[str, ...] | list[str] | None") -> tu
 
 
 #: Non-bank waterfall sources that accept a per-source balance floor.
-WITHDRAWAL_FLOOR_SOURCES: tuple[str, ...] = DEFAULT_WITHDRAWAL_ORDER[1:]
+#: ``"roth"`` covers both ``"roth_basis"`` and ``"roth_earnings"`` against the combined Roth balance.
+WITHDRAWAL_FLOOR_SOURCES: tuple[str, ...] = ("fixed_income", "brokerage", "pretax", "roth", "reserve")
+
+
+def _floor_key(source: str) -> str:
+    return "roth" if source in ("roth_basis", "roth_earnings") else source
 
 
 def validate_withdrawal_floors(floors: Mapping[str, float] | None) -> dict[str, float]:
@@ -105,6 +110,11 @@ def validate_withdrawal_floors(floors: Mapping[str, float] | None) -> dict[str, 
             raise ValueError(
                 "withdrawal_floors applies to non-bank waterfall sources "
                 f"{WITHDRAWAL_FLOOR_SOURCES}; use a reserve bank account or SavingsPolicy.cash_floor for cash"
+            )
+        if source in ("roth_basis", "roth_earnings"):
+            raise ValueError(
+                f"Use 'roth' in withdrawal_floors instead of {source!r} "
+                "(it covers both 'roth_basis' and 'roth_earnings' against the combined Roth balance)"
             )
         if source not in WITHDRAWAL_FLOOR_SOURCES:
             raise ValueError(f"Unknown withdrawal floor source {source!r}; expected one of {WITHDRAWAL_FLOOR_SOURCES}")
@@ -155,12 +165,14 @@ class TaxUnit:
         *,
         withdrawal_order: "tuple[str, ...] | None" = None,
         withdrawal_floors: "Mapping[str, float] | None" = None,
+        floor_members: "list[Person] | tuple[Person, ...] | None" = None,
     ):
         if not members:
             raise ValueError("TaxUnit requires at least one member")
         self.members = members
         self.withdrawal_order = validate_withdrawal_order(withdrawal_order)
         self.withdrawal_floors = validate_withdrawal_floors(withdrawal_floors)
+        self._floor_members = None if floor_members is None else tuple(floor_members)
         self.filing_status = members[0].filing_status
         # The year's tax parameters (brackets, deductions, wage base) for this settlement.
         self.config = members[0].model.year_config
@@ -205,6 +217,7 @@ class TaxUnit:
         seen = set()
         order = getattr(family, "withdrawal_order", None)
         floors = getattr(family, "withdrawal_floors", None)
+        household_members = family.members
         for member in family.members:
             if member.unique_id in seen:
                 continue
@@ -214,11 +227,23 @@ class TaxUnit:
                 and spouse is not None
                 and spouse in family.members
             ):
-                units.append(cls([member, spouse], withdrawal_order=order, withdrawal_floors=floors))
+                units.append(
+                    cls(
+                        [member, spouse],
+                        withdrawal_order=order,
+                        withdrawal_floors=floors,
+                        floor_members=household_members,
+                    )
+                )
                 seen.add(member.unique_id)
                 seen.add(spouse.unique_id)
             else:
-                unit = cls([member], withdrawal_order=order, withdrawal_floors=floors)
+                unit = cls(
+                    [member],
+                    withdrawal_order=order,
+                    withdrawal_floors=floors,
+                    floor_members=household_members,
+                )
                 if member.filing_status == FilingStatus.SINGLE:
                     status = cls._unmarried_status(member)
                     if status is not None:
@@ -265,6 +290,7 @@ class TaxUnit:
             [person],
             withdrawal_order=getattr(family, "withdrawal_order", None),
             withdrawal_floors=getattr(family, "withdrawal_floors", None),
+            floor_members=None if family is None else family.members,
         )
 
     @property
@@ -773,11 +799,12 @@ class TaxUnit:
         return self.members[0].cash_destination
 
     def _available_for(self, source: str) -> float | None:
-        """Maximum the waterfall may draw from ``source`` above its floor, or None when uncapped."""
-        floor = self.withdrawal_floors.get(source, 0.0)
+        """Maximum the waterfall may draw from ``source`` above its household floor, or None when uncapped."""
+        floor = self.withdrawal_floors.get(_floor_key(source), 0.0)
         if floor <= 0:
             return None
-        spare = sum(self._source_balance(member, source) for member in self.members) - floor
+        members = self._floor_members if self._floor_members is not None else self.members
+        spare = sum(self._source_balance(member, source) for member in members) - floor
         return 0.0 if spare < 0.005 else spare
 
     def _raise_cash(self, source: str, amount: float) -> float:
@@ -791,8 +818,9 @@ class TaxUnit:
                 return 0.0
         before = self._source_balances(source)
         raised = 0.0
+        remaining_reduction = available
         for member in self._members_for(source):
-            if raised >= amount:
+            if raised >= amount or (remaining_reduction is not None and remaining_reduction < 0.005):
                 break
             want = amount - raised
             if source == "brokerage":
@@ -808,9 +836,19 @@ class TaxUnit:
                     got += member.withdraw_tax_free_from_roth_iras(want - got)
                 raised += got
             elif source == "fixed_income":
-                raised += member.redeem_fixed_income(want, reserve=False)
+                member_before = self._source_balance(member, source)
+                raised += member.redeem_fixed_income(want, reserve=False, max_reduction=remaining_reduction)
+                if remaining_reduction is not None:
+                    remaining_reduction = max(
+                        0.0, remaining_reduction - (member_before - self._source_balance(member, source))
+                    )
             elif source == "reserve":
-                raised += member.draw_reserves(want)
+                member_before = self._source_balance(member, source)
+                raised += member.draw_reserves(want, max_reduction=remaining_reduction)
+                if remaining_reduction is not None:
+                    remaining_reduction = max(
+                        0.0, remaining_reduction - (member_before - self._source_balance(member, source))
+                    )
             else:  # pragma: no cover - validated in __init__
                 raise ValueError(f"Unknown withdrawal source {source!r}")
         self._log_draws(source, before)
