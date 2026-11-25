@@ -430,6 +430,7 @@ def _kitchen_sink() -> dict:
     data["people"].append(bo)
     data["relationships"] = {"marriages": [{"spouses": ["alex", "bo"], "filing_status": "separate"}]}
     data["withdrawal_order"] = ["bank", "roth_basis", "brokerage", "pretax", "roth_earnings"]
+    data["withdrawal_floors"] = {"brokerage": 10000, "roth_earnings": 5000}
     data["events"] = [
         {"id": "raise", "at": 2028, "person": "alex", "action": "change_job", "job": "job", "salary_annual": 90000},
         {"at": {"relative": {"after": "raise", "years": 2}}, "person": "alex", "action": "sell_home", "home": "house"},

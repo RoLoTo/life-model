@@ -6,6 +6,7 @@
 import math
 import warnings
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -84,6 +85,39 @@ def validate_withdrawal_order(order: "tuple[str, ...] | list[str] | None") -> tu
     return order
 
 
+#: Non-bank waterfall sources that accept a per-source balance floor.
+WITHDRAWAL_FLOOR_SOURCES: tuple[str, ...] = DEFAULT_WITHDRAWAL_ORDER[1:]
+
+
+def validate_withdrawal_floors(floors: Mapping[str, float] | None) -> dict[str, float]:
+    """Return ``floors`` as a normalized ``{source: floor}`` mapping, or ``{}`` when None.
+
+    Keys must name non-bank sources in :data:`WITHDRAWAL_FLOOR_SOURCES`; values must be finite
+    and non-negative. Zero floors are omitted.
+    """
+    if floors is None:
+        return {}
+    if not isinstance(floors, Mapping):
+        raise TypeError(f"withdrawal_floors must be a mapping of source names to dollar floors; got {floors!r}")
+    normalized: dict[str, float] = {}
+    for source, raw in floors.items():
+        if source == "bank":
+            raise ValueError(
+                "withdrawal_floors applies to non-bank waterfall sources "
+                f"{WITHDRAWAL_FLOOR_SOURCES}; use a reserve bank account or SavingsPolicy.cash_floor for cash"
+            )
+        if source not in WITHDRAWAL_FLOOR_SOURCES:
+            raise ValueError(f"Unknown withdrawal floor source {source!r}; expected one of {WITHDRAWAL_FLOOR_SOURCES}")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise TypeError(f"withdrawal_floors[{source!r}] must be a finite non-negative number; got {raw!r}")
+        amount = float(raw)
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError(f"withdrawal_floors[{source!r}] must be a finite non-negative number; got {raw!r}")
+        if amount > 0:
+            normalized[source] = amount
+    return {source: normalized[source] for source in sorted(normalized)}
+
+
 class TaxUnit:
     """A tax-filing unit: a single person, or a married couple filing jointly.
 
@@ -115,11 +149,18 @@ class TaxUnit:
     A head who moves during the year files part-year returns (see :meth:`state_income_tax_due`).
     """
 
-    def __init__(self, members: list["Person"], *, withdrawal_order: "tuple[str, ...] | None" = None):
+    def __init__(
+        self,
+        members: list["Person"],
+        *,
+        withdrawal_order: "tuple[str, ...] | None" = None,
+        withdrawal_floors: "Mapping[str, float] | None" = None,
+    ):
         if not members:
             raise ValueError("TaxUnit requires at least one member")
         self.members = members
         self.withdrawal_order = validate_withdrawal_order(withdrawal_order)
+        self.withdrawal_floors = validate_withdrawal_floors(withdrawal_floors)
         self.filing_status = members[0].filing_status
         # The year's tax parameters (brackets, deductions, wage base) for this settlement.
         self.config = members[0].model.year_config
@@ -163,6 +204,7 @@ class TaxUnit:
         units: list[TaxUnit] = []
         seen = set()
         order = getattr(family, "withdrawal_order", None)
+        floors = getattr(family, "withdrawal_floors", None)
         for member in family.members:
             if member.unique_id in seen:
                 continue
@@ -172,11 +214,11 @@ class TaxUnit:
                 and spouse is not None
                 and spouse in family.members
             ):
-                units.append(cls([member, spouse], withdrawal_order=order))
+                units.append(cls([member, spouse], withdrawal_order=order, withdrawal_floors=floors))
                 seen.add(member.unique_id)
                 seen.add(spouse.unique_id)
             else:
-                unit = cls([member], withdrawal_order=order)
+                unit = cls([member], withdrawal_order=order, withdrawal_floors=floors)
                 if member.filing_status == FilingStatus.SINGLE:
                     status = cls._unmarried_status(member)
                     if status is not None:
@@ -219,7 +261,11 @@ class TaxUnit:
             for unit in cls.build_units(family):
                 if person in unit.members:
                     return unit
-        return cls([person], withdrawal_order=getattr(family, "withdrawal_order", None))
+        return cls(
+            [person],
+            withdrawal_order=getattr(family, "withdrawal_order", None),
+            withdrawal_floors=getattr(family, "withdrawal_floors", None),
+        )
 
     @property
     def living_members(self) -> "list[Person]":
@@ -726,10 +772,23 @@ class TaxUnit:
             return accounts[0]
         return self.members[0].cash_destination
 
+    def _available_for(self, source: str) -> float | None:
+        """Maximum the waterfall may draw from ``source`` above its floor, or None when uncapped."""
+        floor = self.withdrawal_floors.get(source, 0.0)
+        if floor <= 0:
+            return None
+        spare = sum(self._source_balance(member, source) for member in self.members) - floor
+        return 0.0 if spare < 0.005 else spare
+
     def _raise_cash(self, source: str, amount: float) -> float:
         """Move up to ``amount`` from ``source`` (a non-bank waterfall step) into members' banks,
         posting whatever the draw makes taxable. Unsized: the caller accounts for any tax. Returns
         the amount raised."""
+        available = self._available_for(source)
+        if available is not None:
+            amount = min(amount, available)
+            if amount < 0.005:
+                return 0.0
         before = self._source_balances(source)
         raised = 0.0
         for member in self._members_for(source):
@@ -831,11 +890,13 @@ class TaxUnit:
                 netted = True
             elif source == "pretax":
                 # Size and perform any pre-tax withdrawal against the tax and penalty it triggers.
-                gross = self._size_gross_withdrawal(bills)
-                if gross > 0:
-                    before = self._source_balances("pretax")
-                    self.withdraw_from_pretax_accounts(gross)
-                    self._log_draws("pretax", before, target=gross)
+                available = self._available_for("pretax")
+                if available is None or available > 0:
+                    gross = self._size_gross_withdrawal(bills, max_withdrawal=available)
+                    if gross > 0:
+                        before = self._source_balances("pretax")
+                        self.withdraw_from_pretax_accounts(gross)
+                        self._log_draws("pretax", before, target=gross)
             else:
                 # Unsized steps move the remaining gap; a draw that is itself taxable (a fund sale, an I
                 # bond's deferred interest, non-qualified Roth 401(k) earnings) raises the tax, so repeat
@@ -946,7 +1007,9 @@ class TaxUnit:
         previews that netting (:meth:`_taxes_with_sale`); settled taxes are always computed from
         the real post-sale ledger.
         """
-        available = self.brokerage_balance
+        available = self._available_for("brokerage")
+        if available is None:
+            available = self.brokerage_balance
         if available <= 0:
             return
         bank = self.bank_account_balance
@@ -1724,7 +1787,7 @@ class TaxUnit:
             )
         return lines
 
-    def _size_gross_withdrawal(self, bills: float) -> float:
+    def _size_gross_withdrawal(self, bills: float, *, max_withdrawal: float | None = None) -> float:
         """Pure fixed-point solve for the pre-tax withdrawal needed to cover bills + taxes.
 
         Penalties scale linearly with the draw (10% below 59.5), so the map stays a contraction as
@@ -1737,6 +1800,8 @@ class TaxUnit:
         for _ in range(100):
             taxes = self.get_income_taxes_due(self._prospective_taxable(gross)).total
             needed = max(0.0, bills + taxes - bank)
+            if max_withdrawal is not None:
+                needed = min(needed, max_withdrawal)
             if abs(needed - gross) < 0.001:
                 return needed
             gross = needed

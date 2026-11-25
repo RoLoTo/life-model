@@ -3424,6 +3424,9 @@ EVENT_ACTIONS: tuple[str, ...] = (
 #: Payment sources of the household waterfall (``people.tax_unit.DEFAULT_WITHDRAWAL_ORDER``).
 WithdrawalSource = Literal["bank", "fixed_income", "brokerage", "roth_basis", "pretax", "roth_earnings", "reserve"]
 
+#: Non-bank waterfall sources that accept a balance floor (``people.tax_unit.WITHDRAWAL_FLOOR_SOURCES``).
+WithdrawalFloorSource = Literal["fixed_income", "brokerage", "roth_basis", "pretax", "roth_earnings", "reserve"]
+
 
 # --- Top level -----------------------------------------------------------------------------------
 
@@ -3446,6 +3449,14 @@ class HouseholdSpec(SpecModel):
         "places).",
         core="Family.withdrawal_order",
     )
+    withdrawal_floors: dict[WithdrawalFloorSource, NonNegativeMoney] | None = spec_field(
+        None,
+        description="Minimum combined balance to keep in each named non-bank waterfall source (per tax unit). "
+        "Waterfall draws for bills and taxes stop at each floor and spill to the next source; statutory RMDs "
+        "and explicit events still run. For cash floors, use a reserve bank account or SavingsPolicy.cash_floor.",
+        unit="USD",
+        core="Family.withdrawal_floors",
+    )
     events: list[Event] = spec_field(default_factory=list, description="Dated life events.")
     actuals: ActualsByYear | None = spec_field(
         None,
@@ -3461,6 +3472,15 @@ class HouseholdSpec(SpecModel):
             from ..people.tax_unit import validate_withdrawal_order
 
             validate_withdrawal_order(value)
+        return value
+
+    @field_validator("withdrawal_floors")
+    @classmethod
+    def _valid_floors(cls, value: dict[str, float] | None) -> dict[str, float] | None:
+        if value is not None:
+            from ..people.tax_unit import validate_withdrawal_floors
+
+            return validate_withdrawal_floors(value) or None
         return value
 
     def person(self, person_id: str) -> Person:

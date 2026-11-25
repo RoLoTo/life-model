@@ -3,9 +3,11 @@
 # Use of this source code is governed by an MIT license:
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
+from collections.abc import Mapping
+
 from ..model import LifeModel, LifeModelAgent
 from ..tax.federal import FilingStatus, get_federal_standard_deduction
-from .tax_unit import DEFAULT_WITHDRAWAL_ORDER, TaxUnit, validate_withdrawal_order
+from .tax_unit import DEFAULT_WITHDRAWAL_ORDER, TaxUnit, validate_withdrawal_floors, validate_withdrawal_order
 
 
 class Family(LifeModelAgent):
@@ -18,7 +20,13 @@ class Family(LifeModelAgent):
 
     STATS_OWNED = frozenset({"stat_debt"})
 
-    def __init__(self, model: LifeModel, *args, withdrawal_order: "tuple[str, ...] | None" = None):
+    def __init__(
+        self,
+        model: LifeModel,
+        *args,
+        withdrawal_order: "tuple[str, ...] | None" = None,
+        withdrawal_floors: "Mapping[str, float] | None" = None,
+    ):
         """Family
 
         Args:
@@ -28,6 +36,10 @@ class Family(LifeModelAgent):
                 units use (see :data:`~life_model.people.tax_unit.DEFAULT_WITHDRAWAL_ORDER`, the
                 default: bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve).
                 Keyword-only.
+            withdrawal_floors (Mapping[str, float], optional): Minimum combined balance to keep in
+                each named non-bank waterfall source (per tax unit). Waterfall draws stop at each
+                floor and spill to the next source; statutory RMDs and explicit events still run.
+                Keyword-only.
         """
         super().__init__(model)
         self.members = list(args)
@@ -35,6 +47,7 @@ class Family(LifeModelAgent):
         # normalizes it.
         validate_withdrawal_order(withdrawal_order)
         self.withdrawal_order = DEFAULT_WITHDRAWAL_ORDER if withdrawal_order is None else tuple(withdrawal_order)
+        self.withdrawal_floors = validate_withdrawal_floors(withdrawal_floors)
 
     @property
     def federal_deductions(self) -> float:

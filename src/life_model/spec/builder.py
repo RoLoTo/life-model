@@ -12,7 +12,7 @@ uses the order the user wrote things in: :func:`canonical` sorts every list into
 the builder then constructs, for all people at each step:
 
 1. model (:func:`create_model`: seed, scenario, economy overrides) and the one ``Family`` (with the
-   spec's household ``withdrawal_order``);
+   spec's household ``withdrawal_order`` and ``withdrawal_floors``);
 2. people (``Spending`` then ``Person``), in :func:`people_order` (marriage heads first, in
    ``relationships`` order, each followed by their spouse; then everyone else by id);
 3. bank accounts (the ``primary`` one first), then jobs (``Salary``, ``Job``), then 401ks, then
@@ -389,7 +389,9 @@ class _Builder:
         self.model = model
         self.spec = spec
         self.family = Family(
-            model, withdrawal_order=None if spec.withdrawal_order is None else tuple(spec.withdrawal_order)
+            model,
+            withdrawal_order=None if spec.withdrawal_order is None else tuple(spec.withdrawal_order),
+            withdrawal_floors=spec.withdrawal_floors,
         )
         self.built = BuiltHousehold(model=model, family=self.family, spec=spec)
 

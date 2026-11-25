@@ -143,6 +143,7 @@ class _Extractor:
             people=person_specs,
             relationships=self.relationships(people),
             withdrawal_order=self.withdrawal_order(),
+            withdrawal_floors=self.withdrawal_floors(),
             events=self.events(),
         )
 
@@ -153,6 +154,16 @@ class _Extractor:
         for family in (a for a in self.model.agents if isinstance(a, Family)):
             if family.members and tuple(family.withdrawal_order) != DEFAULT_WITHDRAWAL_ORDER:
                 return list(family.withdrawal_order)
+        return None
+
+    def withdrawal_floors(self) -> dict | None:
+        from ..people.family import Family
+        from ..people.tax_unit import validate_withdrawal_floors
+
+        for family in (a for a in self.model.agents if isinstance(a, Family)):
+            floors = validate_withdrawal_floors(getattr(family, "withdrawal_floors", None))
+            if family.members and floors:
+                return floors
         return None
 
     def meta(self) -> s.Meta:
