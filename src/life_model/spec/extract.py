@@ -914,7 +914,9 @@ class _Extractor:
                         name=_none_if(line.name, f"Bridge on {line.home.name}"),
                         credit_limit=line.credit_limit,
                         rate_pct=line.yearly_interest_rate,
+                        interest_mode=line.interest_mode,
                         drawn_principal=float(line.drawn_principal),
+                        capitalized_interest=float(line.capitalized_interest),
                         accrued_interest=float(line.accrued_interest),
                         accrued_through=line.accrued_through,
                     )

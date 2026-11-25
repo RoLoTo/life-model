@@ -3,12 +3,12 @@
 # Use of this source code is governed by an MIT license:
 # https://github.com/sw23/life-model/blob/main/LICENSE
 
-"""Secured short-term credit with simple daily interest and dated cash payments."""
+"""Secured short-term credit with dated cash payments and configurable actual-days/365 interest."""
 
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from math import isfinite
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ..ledger import FlowKind
 from ..model import snap_money
@@ -17,6 +17,9 @@ from .heloc import HomeEquityLine
 if TYPE_CHECKING:
     from ..housing.home import Home
     from ..people.person import Person
+
+BridgeInterestMode = Literal["simple", "compound_monthly", "monthly_interest"]
+BRIDGE_INTEREST_MODES = ("simple", "compound_monthly", "monthly_interest")
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal(0)
@@ -29,8 +32,10 @@ def _cents(amount: Decimal) -> Decimal:
 class DatedBridgeLine(HomeEquityLine):
     """Approved credit secured by the borrower's home.
 
-    Accrued interest counts as a liability. The credit limit and the simple actual-days/365
-    interest calculation apply to drawn principal.
+    Accrued interest counts as a liability. The credit limit applies to drawn principal.
+    ``interest_mode`` controls whether actual-days/365 interest accrues simply on drawn
+    principal (``"simple"``), capitalizes monthly (``"compound_monthly"``), or is billed
+    monthly through the household payment waterfall (``"monthly_interest"``).
     """
 
     def __init__(
@@ -44,13 +49,18 @@ class DatedBridgeLine(HomeEquityLine):
         drawn_principal: float = 0.0,
         accrued_interest: float | Decimal = _ZERO,
         accrued_through: date | None = None,
+        interest_mode: BridgeInterestMode = "simple",
+        capitalized_interest: float | Decimal = _ZERO,
     ):
         if home.person is not owner or home.sold:
             raise ValueError("A bridge line must be secured by the borrower's active home")
         if not isfinite(rate_pct) or rate_pct < 0:
             raise ValueError("A bridge rate must be finite and non-negative")
+        if interest_mode not in BRIDGE_INTEREST_MODES:
+            raise ValueError(f"Bridge interest_mode must be one of {BRIDGE_INTEREST_MODES}")
         limit, principal = Decimal(str(credit_limit)), Decimal(str(drawn_principal))
         interest = Decimal(str(accrued_interest))
+        capitalized = Decimal(str(capitalized_interest))
         if (
             not limit.is_finite()
             or not principal.is_finite()
@@ -61,6 +71,16 @@ class DatedBridgeLine(HomeEquityLine):
             raise ValueError("Opening principal and approved credit must be non-negative cents, within the limit")
         if not interest.is_finite() or interest < 0 or (interest and not principal):
             raise ValueError("Opening bridge interest must be non-negative and requires drawn principal")
+        if (
+            not capitalized.is_finite()
+            or capitalized < 0
+            or capitalized != _cents(capitalized)
+            or (capitalized and (interest_mode != "compound_monthly" or not principal))
+        ):
+            raise ValueError(
+                "Opening capitalized bridge interest must be non-negative whole cents and requires "
+                "compound_monthly with drawn principal"
+            )
         if (principal > 0) != (accrued_through is not None):
             raise ValueError("Supply an accrued-through date exactly when there is opening principal")
         if accrued_through is not None and accrued_through > date(owner.model.year, owner.model.month, 1):
@@ -70,12 +90,14 @@ class DatedBridgeLine(HomeEquityLine):
             home=home,
             credit_limit=credit_limit,
             rate_pct=rate_pct,
-            balance=float(principal + _cents(interest)),
+            balance=float(principal + capitalized + _cents(interest)),
             name=name or f"Bridge on {home.name}",
         )
         self.drawn_principal = principal
+        self.capitalized_interest = capitalized
         self.accrued_interest = interest
         self.accrued_through = accrued_through
+        self.interest_mode: BridgeInterestMode = interest_mode
 
     def get_available_credit(self) -> float:
         return 0.0 if self.home.sold else float(max(_ZERO, Decimal(str(self.credit_limit)) - self.drawn_principal))
@@ -87,7 +109,8 @@ class DatedBridgeLine(HomeEquityLine):
         if days < 0:
             raise ValueError("A bridge transaction cannot precede accrued-through")
         rate = Decimal(str(self.yearly_interest_rate)) / 100
-        return self.accrued_interest + self.drawn_principal * rate * days / 365
+        base = self.drawn_principal + self.capitalized_interest
+        return self.accrued_interest + base * rate * days / 365
 
     def _accrue(self, when: date) -> None:
         """Book interest through ``when``: it is charged, and counted in the interest stats, as it accrues."""
@@ -95,7 +118,7 @@ class DatedBridgeLine(HomeEquityLine):
         increment = _cents(interest) - _cents(self.accrued_interest)
         self.accrued_interest = interest
         self.accrued_through = when if self.drawn_principal else None
-        self.balance = float(self.drawn_principal + _cents(interest))
+        self.balance = float(self.drawn_principal + self.capitalized_interest + _cents(interest))
         charged = float(increment)
         self.interest_paid_this_year += charged
         self.person.stat_interest_paid = snap_money(self.person.stat_interest_paid + charged)
@@ -127,7 +150,7 @@ class DatedBridgeLine(HomeEquityLine):
         drawn = super().draw(float(requested))
         self.drawn_principal += requested
         self.accrued_through = when
-        self.balance = float(self.drawn_principal + _cents(self.accrued_interest))
+        self.balance = float(self.drawn_principal + self.capitalized_interest + _cents(self.accrued_interest))
         return drawn
 
     def make_payment(self, payment_amount: float, extra_to_principal: float = 0.0) -> float:
@@ -138,11 +161,27 @@ class DatedBridgeLine(HomeEquityLine):
 
     @property
     def monthly_payment(self) -> float:
-        return 0.0
+        if self.interest_mode != "monthly_interest" or not self.drawn_principal:
+            return 0.0
+        rate = Decimal(str(self.yearly_interest_rate)) / 1200
+        return float(_cents(self.drawn_principal * rate))
 
     def service_month(self) -> float:
-        """Cash service occurs on the explicit repayment date."""
-        return 0.0
+        """Pay accrued interest monthly under ``monthly_interest``; other modes settle at payoff."""
+        if self.interest_mode != "monthly_interest" or not self.drawn_principal or self.person.is_deceased:
+            return 0.0
+        year, month = self.model.year, self.model.month
+        boundary = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        prior_billed = _cents(self.accrued_interest)
+        total_interest = _cents(self._interest_at(boundary))
+        new_interest = total_interest - prior_billed
+        self.accrued_interest = _ZERO
+        self.accrued_through = boundary
+        self.balance = float(self.drawn_principal)
+        self.interest_paid_this_year += float(new_interest)
+        if total_interest > 0:
+            self.stat_interest_payment_history.append(float(total_interest))
+        return float(total_interest)
 
     def post_step(self) -> None:
         # A line still owned by a decedent was discharged with an estate that had no heir (an heir or
@@ -151,6 +190,10 @@ class DatedBridgeLine(HomeEquityLine):
             year, month = self.model.year, self.model.month
             boundary = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
             self._accrue(boundary)
+            if self.interest_mode == "compound_monthly":
+                self.capitalized_interest += _cents(self.accrued_interest)
+                self.accrued_interest = _ZERO
+                self.balance = float(self.drawn_principal + self.capitalized_interest)
 
     def repay(self, when: date, *, cash_floor: float = 0.0) -> None:
         """Repay from spendable cash above the floor and carry any gap as debt due next month."""
@@ -161,7 +204,7 @@ class DatedBridgeLine(HomeEquityLine):
         if not self.drawn_principal:
             return
         self._accrue(when)
-        payoff = self.drawn_principal + _cents(self.accrued_interest)
+        payoff = self.drawn_principal + self.capitalized_interest + _cents(self.accrued_interest)
         cash = Decimal(str(snap_money(self.person.usable_bank_balance))).quantize(_CENT, rounding=ROUND_DOWN)
         cash_payment = min(payoff, max(_ZERO, cash - floor))
         cause = f"Repay bridge on {when.isoformat()}"
@@ -180,13 +223,15 @@ class DatedBridgeLine(HomeEquityLine):
     def _clear(self) -> None:
         if self.drawn_principal:
             self.stat_principal_payment_history.append(float(self.drawn_principal))
-            self.stat_interest_payment_history.append(float(_cents(self.accrued_interest)))
-        self.drawn_principal = self.accrued_interest = _ZERO
+            interest_paid = float(self.capitalized_interest + _cents(self.accrued_interest))
+            if self.interest_mode != "monthly_interest" or interest_paid > 0:
+                self.stat_interest_payment_history.append(interest_paid)
+        self.drawn_principal = self.capitalized_interest = self.accrued_interest = _ZERO
         self.accrued_through = None
         self.balance = 0.0
 
     def sale_payoff_amount(self, when: date) -> float:
-        return float(self.drawn_principal + _cents(self._interest_at(when)))
+        return float(self.drawn_principal + self.capitalized_interest + _cents(self._interest_at(when)))
 
     def pay_off_from_sale(self, cause: str, *, when: date | None = None) -> float:
         sale_date = when if when is not None else date(self.model.year, self.model.month, 1)
