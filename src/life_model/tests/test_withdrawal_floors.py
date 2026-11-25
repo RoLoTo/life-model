@@ -209,24 +209,30 @@ class TestWithdrawalFloorsInSettlement(unittest.TestCase):
         assert_conservation(model, monthly=True)
 
     def test_household_floor_spans_multiple_tax_units(self):
-        model = LifeModel(start_year=2026, end_year=2026, config=_config(), collect="month")
-        family = Family(model, withdrawal_floors={"brokerage": 150_000})
-        alex = Person(family, "Alex", 50, 65, Spending(model, base_annual=360_000))
-        sam = Person(family, "Sam", 50, 65, Spending(model, base_annual=360_000))
-        BankAccount(owner=alex, company="Bank", balance=0, interest_pct=0)
-        BankAccount(owner=sam, company="Bank", balance=0, interest_pct=0)
-        b_alex = BrokerageAccount(owner=alex, company="B1", balance=100_000, growth_pct=0, dividend_yield_pct=0)
-        b_sam = BrokerageAccount(owner=sam, company="B2", balance=100_000, growth_pct=0, dividend_yield_pct=0)
+        # Two single units each need $30,000 ($60,000 total); $50,000 sits above the $150,000 household
+        # floor and splits proportionally ($25,000 each) regardless of which person is constructed first.
+        for order in (("Alex", "Sam"), ("Sam", "Alex")):
+            with self.subTest(order=order):
+                model = LifeModel(start_year=2026, end_year=2026, config=_config(), collect="month")
+                family = Family(model, withdrawal_floors={"brokerage": 150_000})
+                people = {}
+                brokerages = {}
+                for name in order:
+                    person = Person(family, name, 50, 65, Spending(model, base_annual=360_000))
+                    BankAccount(owner=person, company="Bank", balance=0, interest_pct=0)
+                    brokerages[name] = BrokerageAccount(
+                        owner=person, company=f"B-{name}", balance=100_000, growth_pct=0, dividend_yield_pct=0
+                    )
+                    people[name] = person
 
-        # Two single units each need $30,000 ($60,000 total); $50,000 sits above the $150,000 household floor.
-        model.step()
+                model.step()
 
-        self.assertAlmostEqual(b_alex.balance, 70_000, places=2)
-        self.assertAlmostEqual(b_sam.balance, 80_000, places=2)
-        self.assertAlmostEqual(b_alex.balance + b_sam.balance, 150_000, places=2)
-        self.assertEqual(alex.debt, 0)
-        self.assertAlmostEqual(sam.debt, 10_000, places=2)
-        assert_conservation(model, monthly=True)
+                self.assertAlmostEqual(brokerages["Alex"].balance, 75_000, places=2)
+                self.assertAlmostEqual(brokerages["Sam"].balance, 75_000, places=2)
+                self.assertAlmostEqual(brokerages["Alex"].balance + brokerages["Sam"].balance, 150_000, places=2)
+                self.assertAlmostEqual(people["Alex"].debt, 5_000, places=2)
+                self.assertAlmostEqual(people["Sam"].debt, 5_000, places=2)
+                assert_conservation(model, monthly=True)
 
     def test_statutory_rmd_ignores_pretax_floor(self):
         model = LifeModel(start_year=2026, end_year=2026, config=_config(), collect="month")

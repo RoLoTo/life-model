@@ -122,7 +122,9 @@ class Family(LifeModelAgent):
         Returns:
             float: Balance remaining after paying bills.
         """
-        for unit in TaxUnit.build_units(self):
+        units = TaxUnit.build_units(self)
+        TaxUnit.allocate_floor_budgets(units)
+        for unit in units:
             if spending_balance <= 0:
                 return 0
             spending_balance = unit.pay_bills(spending_balance)
@@ -136,12 +138,16 @@ class Family(LifeModelAgent):
     def step(self):
         # Family performs no tax math. It groups its members into filing units and lets each
         # tax unit pay the month's bills (spending, one-time expenses, carried debt).
-        for unit in TaxUnit.build_units(self):
+        units = TaxUnit.build_units(self)
+        TaxUnit.allocate_floor_budgets(units)
+        for unit in units:
             unit.settle_month()
 
     def on_year_end(self):
         # After December's bills: each tax unit settles the year's taxes.
-        for unit in TaxUnit.build_units(self):
+        units = TaxUnit.build_units(self)
+        TaxUnit.allocate_floor_budgets(units)
+        for unit in units:
             unit.settle_year()
 
     def collect_stats(self):

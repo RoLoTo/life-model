@@ -173,6 +173,7 @@ class TaxUnit:
         self.withdrawal_order = validate_withdrawal_order(withdrawal_order)
         self.withdrawal_floors = validate_withdrawal_floors(withdrawal_floors)
         self._floor_members = None if floor_members is None else tuple(floor_members)
+        self._allocated_floors: dict[str, float] | None = None
         self.filing_status = members[0].filing_status
         # The year's tax parameters (brackets, deductions, wage base) for this settlement.
         self.config = members[0].model.year_config
@@ -798,13 +799,36 @@ class TaxUnit:
             return accounts[0]
         return self.members[0].cash_destination
 
+    @classmethod
+    def allocate_floor_budgets(cls, units: "list[TaxUnit]") -> None:
+        """Partition each household withdrawal floor across ``units`` in proportion to each unit's
+        balance in that source so settlement order does not change which unit gets the spare."""
+        if len(units) <= 1 or not units[0].withdrawal_floors:
+            return
+        floors = units[0].withdrawal_floors
+        allocated: list[dict[str, float]] = [{} for _ in units]
+        for source, floor in floors.items():
+            balances = [math.fsum(cls._source_balance(m, source) for m in unit.members) for unit in units]
+            total = math.fsum(balances)
+            for unit_floors, unit_balance in zip(allocated, balances, strict=True):
+                unit_floors[source] = unit_balance if total <= floor else floor * (unit_balance / total)
+        for unit, unit_floors in zip(units, allocated, strict=True):
+            unit._allocated_floors = unit_floors
+
     def _available_for(self, source: str) -> float | None:
-        """Maximum the waterfall may draw from ``source`` above its household floor, or None when uncapped."""
-        floor = self.withdrawal_floors.get(_floor_key(source), 0.0)
+        """Maximum the waterfall may draw from ``source`` above its floor, or None when uncapped."""
+        key = _floor_key(source)
+        if self._allocated_floors is not None:
+            floor = self._allocated_floors.get(key)
+            if floor is None:
+                return None
+            spare = math.fsum(self._source_balance(member, source) for member in self.members) - floor
+            return 0.0 if spare < 0.005 else spare
+        floor = self.withdrawal_floors.get(key, 0.0)
         if floor <= 0:
             return None
         members = self._floor_members if self._floor_members is not None else self.members
-        spare = sum(self._source_balance(member, source) for member in members) - floor
+        spare = math.fsum(self._source_balance(member, source) for member in members) - floor
         return 0.0 if spare < 0.005 else spare
 
     def _raise_cash(self, source: str, amount: float) -> float:
@@ -1045,9 +1069,8 @@ class TaxUnit:
         previews that netting (:meth:`_taxes_with_sale`); settled taxes are always computed from
         the real post-sale ledger.
         """
-        available = self._available_for("brokerage")
-        if available is None:
-            available = self.brokerage_balance
+        spare = self._available_for("brokerage")
+        available = self.brokerage_balance if spare is None else min(spare, self.brokerage_balance)
         if available <= 0:
             return
         bank = self.bank_account_balance
