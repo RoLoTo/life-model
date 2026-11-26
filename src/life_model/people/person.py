@@ -931,18 +931,33 @@ class Person(LifeModelAgent):
             agent=self,
         )
 
-    def _draw_to_bank(self, draws, amount: float, kind: "FlowKind | str", cause: str | None = None) -> float:
+    def _draw_to_bank(
+        self,
+        draws,
+        amount: float,
+        kind: "FlowKind | str",
+        cause: str | None = None,
+        *,
+        max_reduction: float | None = None,
+    ) -> float:
         """Take up to ``amount`` from ``draws`` (``(account, withdraw_callable)`` pairs, in order) into
-        this person's bank, posting one transfer per account. Returns the amount drawn."""
+        this person's bank, posting one transfer per account. When ``max_reduction`` is supplied, stop
+        once total balance removed across the drawn accounts reaches it (including any early-redemption
+        penalty). Returns the cash raised."""
         destination = self.cash_destination
         # The caller's reason (e.g. "fund 2031 bills and taxes") wins over the generic one.
         cause = self.model.ledger.current_cause or cause
         remaining = amount
+        remaining_reduction = max_reduction
         for account, withdraw in draws:
-            if remaining <= 0:
+            if remaining <= 0 or (remaining_reduction is not None and remaining_reduction < 0.005):
                 break
-            taken = withdraw(remaining)
+            request = remaining if remaining_reduction is None else min(remaining, remaining_reduction)
+            before = account.balance if remaining_reduction is not None else 0.0
+            taken = withdraw(request)
             remaining -= taken
+            if remaining_reduction is not None:
+                remaining_reduction = max(0.0, remaining_reduction - (before - account.balance))
             if taken > 0:
                 self.model.ledger.post(
                     taken, kind, from_account=account, to_account=destination, cause=cause, agent=self
@@ -1182,7 +1197,7 @@ class Person(LifeModelAgent):
         """Balances of this person's emergency-reserve bank accounts."""
         return sum(a.balance for a in self.bank_accounts if getattr(a, "reserve", False))
 
-    def redeem_fixed_income(self, amount: float, *, reserve: bool) -> float:
+    def redeem_fixed_income(self, amount: float, *, reserve: bool, max_reduction: float | None = None) -> float:
         """Redeem up to ``amount`` of cash from this person's reserve (or non-reserve) holdings into the
         bank (shortest maturity first). Returns the cash raised."""
         holdings = sorted(
@@ -1190,19 +1205,30 @@ class Person(LifeModelAgent):
             key=lambda h: (h.maturity or (9999, 12), h.name, h.unique_id),
         )
         return self._draw_to_bank(
-            [(h, h.redeem) for h in holdings], amount, FlowKind.WITHDRAWAL, "fixed-income redemption"
+            [(h, h.redeem) for h in holdings],
+            amount,
+            FlowKind.WITHDRAWAL,
+            "fixed-income redemption",
+            max_reduction=max_reduction,
         )
 
-    def draw_reserves(self, amount: float) -> float:
+    def draw_reserves(self, amount: float, *, max_reduction: float | None = None) -> float:
         """Move up to ``amount`` from emergency reserves into the primary bank: reserve bank accounts
         first, then reserve fixed-income holdings. Returns the cash raised."""
         primary = self.primary_bank_account
         reserves = [
             a for a in self.bank_accounts if getattr(a, "reserve", False) and a.balance > 0 and a is not primary
         ]
-        raised = self._draw_to_bank([(a, a.withdraw) for a in reserves], amount, FlowKind.TRANSFER, "reserve draw")
-        if amount - raised > 0:
-            raised += self.redeem_fixed_income(amount - raised, reserve=True)
+        raised = self._draw_to_bank(
+            [(a, a.withdraw) for a in reserves],
+            amount,
+            FlowKind.TRANSFER,
+            "reserve draw",
+            max_reduction=max_reduction,
+        )
+        remaining_reduction = None if max_reduction is None else max(0.0, max_reduction - raised)
+        if amount - raised > 0 and (remaining_reduction is None or remaining_reduction >= 0.005):
+            raised += self.redeem_fixed_income(amount - raised, reserve=True, max_reduction=remaining_reduction)
         return raised
 
     def withdraw_from_roth_401ks(self, amount: float) -> float:
