@@ -58,7 +58,7 @@ Each spec entry, the core class the builder constructs, the fields you must give
 | Withholding | `W4 \| FlatWithholding` | — | — |
 | W4Spec | `W4` | — | `multiple_jobs=False`, `dependents_annual=0.0`, `other_income_annual=0.0`, `deductions_annual=0.0`, `extra_monthly=0.0` |
 | BankAccount (`kind: bank`) | `BankAccount` | — | `company='Bank'`, `type='Checking'`, `balance=0.0`, `interest_pct='economy'`, `primary=False`, `reserve=False`, `joint=False` |
-| CashReserveAccount (`kind: cash_reserve`) | `CashReserve` | `balance`, `release_on` | `name='Earmarked cash'` |
+| CashReserveAccount (`kind: cash_reserve`) | `CashReserve` | `balance`, `release_on` | `name='Earmarked cash'`, `interest_pct=0.0` |
 | FixedIncomeAccount (`kind: fixed_income`) | `FixedIncomeHolding` | `instrument`, `face`, `rate_pct` | `tax_exempt=False`, `early_withdrawal_penalty_months=0`, `reserve=True`, `accrued_interest=0.0` |
 | BrokerageAccount (`kind: brokerage`) | `BrokerageAccount` | — | `company='Brokerage'`, `growth_pct='economy'`, `reinvest_dividends=True`, `joint=False` |
 | Job401k (`kind: 401k`) | `Job401kAccount` | — | `pretax_balance=0.0`, `roth_balance=0.0`, `pretax_contrib_pct=0.0`, `roth_contrib_pct=0.0`, `growth_pct='economy'`, `bonus_is_plan_pay=False`, `match_vesting_years=0`, `company_match_pct=0.0`, `after_tax_contrib_pct=0.0`, `in_plan_roth_conversion=False` |
