@@ -255,16 +255,22 @@ class Home(LifeModelAgent):
         ledger = self.model.ledger
         cause = f"purchase of {self.name}"
         unit = TaxUnit.for_member(self.person)
-        pay = unit._pay_from_banks if self._cash_only else unit.pay_bills
+        if self._cash_only:
+
+            def pay(amount: float, **post) -> float:
+                # Bank cash was checked to the cent before the purchase, so only float residue can remain.
+                return snap_money(unit.pay_from_banks(amount, **post))
+
+        else:
+            pay = unit.pay_bills
         # The down payment buys equity (a transfer into the home); the mortgage lends the rest of
-        # the price (borrowed into the home); closing costs are spent.
+        # the price (borrowed into the home); closing costs are spent. Anything left unpaid is
+        # carried as debt.
         with ledger.caused_by(cause):
             unpaid = pay(self.down_payment, kind=FlowKind.HOUSING, to_account=self, cause=cause)
-            if not self._cash_only:
-                self.person.add_debt(unpaid, to_account=self, cause=cause)
+            self.person.add_debt(unpaid, to_account=self, cause=cause)
             unpaid = pay(closing_costs, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
-            if not self._cash_only:
-                self.person.add_debt(unpaid, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
+            self.person.add_debt(unpaid, kind=FlowKind.HOUSING, sink="closing costs", cause=cause)
         principal = self.mortgage.principal if self.mortgage is not None else 0.0
         if self.mortgage is not None:
             ledger.post(
@@ -1041,14 +1047,17 @@ class Mortgage(Loan):
         finance_costs: bool = False,
         cash_out: float = 0.0,
         cash_out_for_improvements: bool = False,
+        rate_compounding: MortgageRateCompounding = "monthly",
     ) -> float:
         """Refinance (see :meth:`Loan.refinance`). A cash-out beyond the old balance is home-equity
         debt (its interest not deductible after 2017) unless ``cash_out_for_improvements`` (it then
-        adds to the home's cost basis as an improvement and is acquisition debt). The new rate
-        is quoted with monthly compounding."""
+        adds to the home's cost basis as an improvement and is acquisition debt). ``rate_compounding``
+        is the new quote's convention; a semiannual quote is converted to the monthly equivalent."""
+        rate = mortgage_rate_on_monthly_basis(rate_pct, rate_compounding)
         self._cash_out_for_improvements = cash_out_for_improvements
-        new_principal = super().refinance(
-            rate_pct,
+        new_principal = self._refinance(
+            rate,
+            quoted_rate_pct=rate_pct,
             term_months=term_months,
             term_years=term_years,
             costs=costs,
@@ -1056,7 +1065,7 @@ class Mortgage(Loan):
             cash_out=cash_out,
         )
         self.quoted_rate_pct = rate_pct
-        self.rate_compounding = "monthly"
+        self.rate_compounding = rate_compounding
         self._renewal_baseline = None
         self._renewal_opening_payments = 0
         self.prepayment_privilege = None  # A refinance creates a new loan with a new contract.

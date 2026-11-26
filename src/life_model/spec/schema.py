@@ -35,9 +35,6 @@ from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..debt.terms import MortgageRateCompounding
-from ..housing.prepayment import MortgagePrepaymentPrivilege as ContractPrepaymentPrivilege
-
 #: Version of the spec format written by :func:`life_model.spec.io.dump`.
 SPEC_VERSION = 1
 
@@ -820,7 +817,9 @@ class CashReserveAccount(SpecModel):
     kind: Literal["cash_reserve"]
     id: Identifier | None = _id_field("account")
     name: str = spec_field("Earmarked cash", description="Label used on the ledger.")
-    balance: float = spec_field(description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False)
+    balance: NonNegativeMoney = spec_field(
+        description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False
+    )
     release_on: date = spec_field(description="Calendar date when the balance becomes available.")
 
 
@@ -1843,6 +1842,10 @@ Debt = Annotated[CarLoan | StudentLoan | CreditCard | HomeEquityLine | BridgeLin
 # --- Housing -------------------------------------------------------------------------------------
 
 
+#: Compounding convention of a quoted mortgage rate (``debt.terms.MortgageRateCompounding``).
+MortgageRateCompounding = Literal["monthly", "semiannual"]
+
+
 class MortgageRenewalState(SpecModel):
     """The PMI schedule and acquisition debt limits saved when a mortgage has renewed."""
 
@@ -1879,18 +1882,6 @@ class MortgagePrepaymentPrivilege(SpecModel):
     used: NonNegativeMoney = spec_field(
         0.0, description="Amount already used in the opening contract year.", unit="USD", allow_inf_nan=False
     )
-
-    def resolve(self, as_of: date, default_basis: float | None) -> ContractPrepaymentPrivilege:
-        basis = self.basis_amount if self.basis_amount is not None else default_basis
-        if basis is None:
-            raise ValueError("A prepayment cap needs a basis amount when the original principal is unknown")
-        return ContractPrepaymentPrivilege(
-            anniversary=self.anniversary,
-            annual_limit_pct=self.annual_limit_pct,
-            basis_amount=basis,
-            as_of=as_of,
-            used=self.used,
-        )
 
 
 class Mortgage(_LoanTerms):
@@ -2234,7 +2225,7 @@ class GeneralInsurance(SpecModel):
         description="Annual premium.", unit="USD/year", core="Insurance.annual_premium"
     )
     coverage_amount: NonNegativeMoney = spec_field(
-        description="Coverage limit.", unit="USD", core="Insurance.coverage_amount"
+        description="Coverage limit (ltc: the yearly benefit).", unit="USD", core="Insurance.coverage_amount"
     )
     deductible: NonNegativeMoney = spec_field(0.0, description="Deductible.", unit="USD", core="Insurance.deductible")
     coverage_start_age: Age | None = spec_field(
@@ -2278,7 +2269,7 @@ class GeneralInsurance(SpecModel):
     )
     elimination_months: int = spec_field(
         3,
-        description="Disability: months before benefits start.",
+        description="Disability: months before benefits start; ltc: care months before benefits start (met once).",
         unit="months",
         core="Insurance.elimination_months",
         ge=0,
@@ -2299,6 +2290,24 @@ class GeneralInsurance(SpecModel):
         False,
         description="Disability: premiums paid by the employer or pre-tax, so benefits are taxable (else tax-free).",
         core="Insurance.benefits_taxable",
+    )
+    benefit_growth_pct: NonNegativePercent = spec_field(
+        0.0,
+        description="ltc: inflation rider; the annual benefit (coverage_amount) and the lifetime maximum grow by this "
+        "percent a year, compounded.",
+        unit="percent",
+        core="Insurance.benefit_growth_pct",
+    )
+    lifetime_benefit_max: NonNegativeMoney | None = spec_field(
+        None,
+        description="ltc: the policy's lifetime benefit pool (unlimited when unset).",
+        unit="USD",
+        core="Insurance.lifetime_benefit_max",
+    )
+    waive_premium_in_claim: bool = spec_field(
+        True,
+        description="ltc: no premium for a year that starts while benefits are being paid.",
+        core="Insurance.waive_premium_in_claim",
     )
 
 
@@ -2395,7 +2404,26 @@ class Healthcare(SpecModel):
     medicare: bool = spec_field(
         False, description="Medicare premiums and IRMAA from the eligibility age.", core="Medicare"
     )
-    long_term_care: bool = spec_field(False, description="Long-term-care hazard and costs.", core="LongTermCare")
+    long_term_care: bool = spec_field(
+        False,
+        description="Long-term-care need: a monthly onset hazard from the configured start age, an episode in home "
+        "care, assisted living or a nursing home (each with its cost and a higher death hazard), claimed against "
+        "any ltc insurance.",
+        core="LongTermCare",
+    )
+    medicaid: bool = spec_field(
+        False,
+        description="Medicaid pays long-term care once countable assets are spent down to the limit (a spouse at "
+        "home keeps the resource allowance); the person pays their income above the personal needs allowance. "
+        "Without it an unpaid care cost becomes debt. Needs long_term_care.",
+        core="LongTermCare.medicaid",
+    )
+
+    @model_validator(mode="after")
+    def _medicaid_needs_care(self) -> "Healthcare":
+        if self.medicaid and not self.long_term_care:
+            raise ValueError("medicaid needs long_term_care: true (Medicaid here pays long-term care)")
+        return self
 
 
 class Donation(SpecModel):
@@ -2974,6 +3002,9 @@ class HomeCashFunding(SpecModel):
     minimum_down_payment: ClosingMoney = spec_field(description="Minimum cash down payment.", unit="USD")
     mortgage_limit: ClosingMoney = spec_field(description="Maximum financing available at closing.", unit="USD")
     rate_pct: NonNegativePercent = spec_field(description="Mortgage APR for the new loan.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly", description="Compounding of the quoted rate (semiannual quotes convert to the monthly equivalent)."
+    )
     term_years: int = spec_field(description="Mortgage amortization in years.", unit="years", ge=1)
     down_payment_fraction: float = spec_field(
         1.0, description="Share of available cash to put down after costs and retained cash (0 to 1).", ge=0, le=1
@@ -3071,7 +3102,12 @@ class ReserveCashEvent(EventBase):
 
     action: Literal["reserve_cash"]
     bank: Identifier = spec_field(description="Id of the owner's funding bank.")
-    amount: float = spec_field(description="Cash to earmark.", unit="USD", gt=0, allow_inf_nan=False)
+    amount: NonNegativeMoney = spec_field(
+        description="Cash to earmark (less when the bank's cash after the year's unpaid tax falls short).",
+        unit="USD",
+        gt=0,
+        allow_inf_nan=False,
+    )
     release_on: date = spec_field(description="Release date in a later month, before ordinary events that day.")
 
     @model_validator(mode="after")
@@ -3164,6 +3200,11 @@ class RefinanceEvent(EventBase):
     action: Literal["refinance"]
     debt: Identifier = spec_field(description="Id of the home (its mortgage) or of the car / student loan.")
     rate_pct: NonNegativePercent = spec_field(description="New APR.", unit="percent")
+    rate_compounding: MortgageRateCompounding = spec_field(
+        "monthly",
+        description="Compounding of a mortgage's new quoted rate. Semiannual quotes are converted to the monthly "
+        "equivalent. Car and student loans use monthly.",
+    )
     term_years: int | None = spec_field(None, description="New term in years.", unit="years", ge=1)
     term_months: int | None = spec_field(None, description="New term in months.", unit="months", ge=1)
     costs: NonNegativeMoney = spec_field(0.0, description="Closing costs.", unit="USD")

@@ -50,6 +50,7 @@ ASSUMPTION_CODES = frozenset(
         "default_child_costs",
         "child_birth_month_assumed",
         "no_health_coverage",
+        "no_end_of_life_costs",
         "cash_not_invested",
         "ss_estimate_assumes_work",
     }
@@ -261,6 +262,7 @@ class _SpecChecker:
         self.check_tax_inputs()
         self.check_children()
         self.check_retirement_gaps()
+        self.check_late_life_costs()
         self.check_cash_sweep()
         return self.findings
 
@@ -337,6 +339,37 @@ class _SpecChecker:
     LOW_CASH_YIELD_PCT = 1.0
     #: Runs at least this long get the surplus-cash warning.
     LONG_RUN_YEARS = 10
+
+    def check_late_life_costs(self) -> None:
+        """Warn when an ltc policy has no care need to pay for, and when a person who can die in the run has
+        no healthcare block (the funeral and final-year medical costs are charged only with one)."""
+        for i, p in enumerate(self.spec.people):
+            path = f"people[{i}]"
+            care = p.healthcare
+            if any(policy.kind == "ltc" for policy in p.insurance) and (care is None or not care.long_term_care):
+                self.warn(
+                    f"{path}.healthcare.long_term_care",
+                    f"{p.name} has a long-term-care policy but no long-term-care need is modeled, so the policy "
+                    "only pays premiums and never a benefit.",
+                    "add healthcare: {long_term_care: true} (the care hazard and costs the policy reimburses), or "
+                    "remove the policy.",
+                    "ltc_policy_without_care",
+                )
+            dies = p.mortality == "stochastic" or (
+                p.mortality == "fixed_age" and p.death_age is not None and self._year_at(p, p.death_age) <= self.end
+            )
+            has_care = care is not None and (
+                care.medical_costs or care.medical_costs_annual is not None or care.medicare or care.long_term_care
+            )
+            if dies and not has_care:
+                self.warn(
+                    f"{path}.healthcare",
+                    f"{p.name} can die during the run but has no healthcare block, so no funeral or final-year "
+                    "medical costs are charged at death.",
+                    "add healthcare: {medical_costs: true, medicare: true} (the funeral and a final-year medical "
+                    "cost are then charged at death), or accept it (meta.accepted_warnings: [no_end_of_life_costs]).",
+                    "no_end_of_life_costs",
+                )
 
     def check_cash_sweep(self) -> None:
         """Warn when nobody sweeps surplus cash and the bank pays a low yield over a long run: income left after
@@ -888,6 +921,17 @@ class _SpecChecker:
                 code="no_disability_policy",
             )
 
+    def check_release_in_run(self, release: date, path: str) -> None:
+        """Warn when earmarked cash is released after the run ends, so it stays locked to the end."""
+        if release.year > self.end:
+            self.warn(
+                path,
+                f"The release date {release.isoformat()} is after the run ends ({self.end}); "
+                "the cash stays earmarked through the last simulated month.",
+                "Release the cash within the run, or extend meta.end_year.",
+                code="release_after_run",
+            )
+
     def check_account_rules(self, account, path: str) -> None:
         """Account rules: a standalone 401k takes no contributions or match; an allocation sums to 100 and
         needs growth to follow the economy."""
@@ -895,6 +939,7 @@ class _SpecChecker:
             release = account.release_on
             if (release.year, release.month) < (self.start, self.start_month):
                 self.error(f"{path}.release_on", "Release date precedes the first simulated month.")
+            self.check_release_in_run(release, f"{path}.release_on")
         if isinstance(account, s.Job401k) and account.job is None:
             if account.pretax_contrib_pct or account.roth_contrib_pct or account.after_tax_contrib_pct:
                 self.error(
@@ -1147,9 +1192,13 @@ class _SpecChecker:
         from ..debt.terms import mortgage_rate_on_monthly_basis
 
         if m.prepayment_privilege is not None:
+            from .builder import prepayment_privilege
+
             year, month = as_of or (self.start, self.start_month)
             try:
-                m.prepayment_privilege.resolve(date(year, month, 1), m.original_amount)
+                prepayment_privilege(
+                    m.prepayment_privilege, as_of=date(year, month, 1), default_basis=m.original_amount
+                )
             except ValueError as error:
                 self.error(f"{path}.prepayment_privilege", str(error))
 
@@ -1252,6 +1301,80 @@ class _SpecChecker:
         base = self.resolve(anchor.at, anchor.person, by_id, (*stack, relative.after))
         return None if base is None else base + relative.years
 
+    def event_month(self, event: s.EventBase, by_id: Mapping[str, s.EventBase], stack: tuple = ()) -> int | None:
+        """The month the compiler dates ``event`` in (None: the first simulated month of its year)."""
+        at = event.at
+        if at.month is not None:
+            return at.month
+        if at.age is not None:
+            person = self.people.get(at.person or event.person)
+            return None if person is None or person.birth is None else int(person.birth.split("-")[1])
+        if at.relative is not None and at.relative.after not in stack:
+            anchor = by_id.get(at.relative.after)
+            if anchor is not None:
+                return self.event_month(anchor, by_id, (*stack, at.relative.after))
+        return None
+
+    def event_day(self, event: s.EventBase, by_id: Mapping[str, s.EventBase], stack: tuple = ()) -> int | None:
+        """An explicit day, or the day of a relative anchor in the same year and month."""
+        at = event.at
+        if at.day is not None:
+            return at.day
+        relative = at.relative
+        if relative is not None and relative.years == 0 and relative.after not in stack:
+            anchor = by_id.get(relative.after)
+            if anchor is not None and self.event_month(anchor, by_id) == self.event_month(event, by_id):
+                return self.event_day(anchor, by_id, (*stack, relative.after))
+        return None
+
+    def firing_order(self, event: s.EventBase, by_id: Mapping[str, s.EventBase], position: int) -> tuple | None:
+        """A sort key matching the engine's firing order: the month an event is due, its stage, its day,
+        then the compiled order (undated before dated, anchors before dependents, canonical position).
+        None when the date does not resolve."""
+        from ..lifeevents import LIFE_EVENT_STAGES
+        from .events import ACTION_STAGES
+
+        year = self.resolve(event.at, event.person, by_id)
+        if year is None:
+            return None
+        month = self.event_month(event, by_id)
+        due = month if month is not None else (self.start_month if year == self.start else 1)
+        depth, at, seen = 0, event.at, set()
+        while at.relative is not None and at.relative.after in by_id and at.relative.after not in seen:
+            seen.add(at.relative.after)
+            depth, at = depth + 1, by_id[at.relative.after].at
+        stage = LIFE_EVENT_STAGES.index(ACTION_STAGES.get(event.action, "events"))
+        return (year, due, stage, self.event_day(event, by_id) or 1, month or 0, depth, position)
+
+    def check_event_order(self, by_id: Mapping[str, s.EventBase]) -> None:
+        """An event acting on a home added by another event must fire after it."""
+        from .builder import _sorted
+
+        added_by = {
+            item.id: event
+            for event in self.spec.events
+            for collection, item in _event_items(event)
+            if collection == "housing" and item.id is not None
+        }
+        if not added_by:
+            return
+        position = {id(event): i for i, event in enumerate(_sorted(self.spec.events))}
+        for i, event in enumerate(self.spec.events):
+            for field, target in _home_targets(event):
+                source = added_by.get(target)
+                if source is None or source is event:
+                    continue
+                mine = self.firing_order(event, by_id, position[id(event)])
+                theirs = self.firing_order(source, by_id, position[id(source)])
+                if mine is not None and theirs is not None and mine < theirs:
+                    self.error(
+                        f"events[{i}].{field}",
+                        f"'{event.action}' fires before the '{source.action}' event that adds {target!r}, so the "
+                        "home would not exist yet.",
+                        "date it after that event, or time it relative to that event's id.",
+                        "event_order",
+                    )
+
     @staticmethod
     def _starts_on_leap_day(event: s.EventBase, by_id: Mapping[str, s.EventBase]) -> bool:
         """Find February 29 through same-year, same-month relative anchors."""
@@ -1266,6 +1389,7 @@ class _SpecChecker:
     def check_events(self) -> None:
         by_id = {e.id: e for e in self.spec.events if e.id is not None}
         item_ids = self.item_ids()
+        self.check_event_order(by_id)
         min_claim = self.config.social_security.min_early_retirement_age
         for i, event in enumerate(self.spec.events):
             path = f"events[{i}]"
@@ -1273,7 +1397,12 @@ class _SpecChecker:
             if event.at.person is not None:
                 self.check_person_ref(event.at.person, f"{path}.at.person")
             if event.at.day is not None and isinstance(event, s.ClaimSocialSecurityEvent | s.DieEvent):
-                self.error(f"{path}.at.day", f"'{event.action}' uses an age threshold and cannot specify a day.")
+                self.error(
+                    f"{path}.at.day",
+                    f"'{event.action}' is applied as an age when the household is built, so a day would have no "
+                    "effect.",
+                    "remove at.day.",
+                )
             rel = event.at.relative
             if rel is not None:
                 if rel.after not in by_id:
@@ -1351,6 +1480,8 @@ class _SpecChecker:
                     )
                 elif isinstance(target, s.Home) and target.mortgage is None:
                     self.error(f"{path}.debt", f"home {event.debt!r} has no mortgage to refinance", code="invalid")
+                elif not isinstance(target, s.Home) and event.rate_compounding != "monthly":
+                    self.error(f"{path}.rate_compounding", "Only a mortgage refinance can use a semiannual quote.")
             if isinstance(event, s.HelocDrawEvent) and not is_kind(event.heloc, s.HomeEquityLine):
                 self.error(f"{path}.heloc", f"unknown home equity line {event.heloc!r}", code="unknown_reference")
             if isinstance(event, s.BridgeEvent | s.MortgageMaturityEvent) and event.bridge is not None:
@@ -1361,6 +1492,7 @@ class _SpecChecker:
                 target = item_ids.get(event.bank)
                 if target is None or target[0] != event.person or not isinstance(target[2], s.BankAccount):
                     self.error(f"{path}.bank", "Funding bank must be owned by the person setting aside cash.")
+                self.check_release_in_run(event.release_on, f"{path}.release_on")
             if isinstance(event, s.ContributeEvent):
                 target = item_ids.get(event.account)
                 if target is None or target[1] != "accounts":
@@ -1543,6 +1675,19 @@ def _event_items(event) -> list[tuple[str, Any]]:
     if isinstance(event, s.AddAccountEvent):
         items.append(("accounts", event.account))
     return items
+
+
+def _home_targets(event) -> list[tuple[str, str]]:
+    """(field, home id) pairs an event acts on."""
+    if isinstance(
+        event, s.MortgageRenewalEvent | s.MortgageMaturityEvent | s.MortgagePrepaymentEvent | s.SellHomeEvent
+    ):
+        return [("home", event.home)]
+    if isinstance(event, s.RefinanceEvent):
+        return [("debt", event.debt)]
+    if isinstance(event, s.MoveEvent) and event.sell_home is not None:
+        return [("sell_home", event.sell_home)]
+    return []
 
 
 def _amortized_payment(principal: float, rate_pct: float, years: int) -> float:

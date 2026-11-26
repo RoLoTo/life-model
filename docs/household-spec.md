@@ -872,7 +872,7 @@ Builds: `Insurance`.
 | `id` | string (optional) |  | — |  | Optional identifier for this policy, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
 | `company` | string |  | `"Insurer"` | `Insurance.company` | Insurer. |
 | `premium_annual` | number | USD/year | **required** | `Insurance.annual_premium` | Annual premium. |
-| `coverage_amount` | number | USD | **required** | `Insurance.coverage_amount` | Coverage limit. |
+| `coverage_amount` | number | USD | **required** | `Insurance.coverage_amount` | Coverage limit (ltc: the yearly benefit). |
 | `deductible` | number | USD | `0.0` | `Insurance.deductible` | Deductible. |
 | `coverage_start_age` | integer (optional) | age | — | `Insurance.coverage_start_age` | Coverage start age (immediate when unset). |
 | `coverage_end_age` | integer (optional) | age | — | `Insurance.coverage_end_age` | Coverage end age (lifetime when unset). |
@@ -882,10 +882,13 @@ Builds: `Insurance`.
 | `coinsurance_pct` | number (optional) | percent | — | `Insurance.coinsurance_pct` | Health: the person's share of costs above the deductible (100 when unset). |
 | `benefit_pct` | number (optional) | percent | — | `Insurance.benefit_pct` | Disability: share of pre-disability pay replaced (paid after a 'disability' event). |
 | `benefit_max_monthly` | number (optional) | USD/month | — | `Insurance.benefit_max_monthly` | Disability: monthly benefit cap. |
-| `elimination_months` | integer | months | `3` | `Insurance.elimination_months` | Disability: months before benefits start. |
+| `elimination_months` | integer | months | `3` | `Insurance.elimination_months` | Disability: months before benefits start; ltc: care months before benefits start (met once). |
 | `benefit_end_age` | number (optional) | age | — | `Insurance.benefit_end_age` | Disability: age benefits stop (coverage_end_age, else 65, when unset). |
 | `marketplace` | [Marketplace](#marketplace) (optional) |  | — | `Insurance.marketplace` | health: bought on the ACA marketplace (premium paid monthly while covered, net of any advance credit; the premium tax credit on the return). |
 | `benefits_taxable` | boolean |  | `False` | `Insurance.benefits_taxable` | Disability: premiums paid by the employer or pre-tax, so benefits are taxable (else tax-free). |
+| `benefit_growth_pct` | number | percent | `0.0` | `Insurance.benefit_growth_pct` | ltc: inflation rider; the annual benefit (coverage_amount) and the lifetime maximum grow by this percent a year, compounded. |
+| `lifetime_benefit_max` | number (optional) | USD | — | `Insurance.lifetime_benefit_max` | ltc: the policy's lifetime benefit pool (unlimited when unset). |
+| `waive_premium_in_claim` | boolean |  | `True` | `Insurance.waive_premium_in_claim` | ltc: no premium for a year that starts while benefits are being paid. |
 
 ## Marketplace
 
@@ -923,7 +926,8 @@ Opt-in healthcare cost agents.
 | `medical_costs` | boolean |  | `False` | `MedicalCosts` | Age-banded out-of-pocket medical costs. |
 | `medical_costs_annual` | number (optional) | USD/year | — | `MedicalCosts.annual_cost` | The person's own yearly medical cost (start-year dollars, medical inflation) instead of the configured age bands; implies medical_costs. |
 | `medicare` | boolean |  | `False` | `Medicare` | Medicare premiums and IRMAA from the eligibility age. |
-| `long_term_care` | boolean |  | `False` | `LongTermCare` | Long-term-care hazard and costs. |
+| `long_term_care` | boolean |  | `False` | `LongTermCare` | Long-term-care need: a monthly onset hazard from the configured start age, an episode in home care, assisted living or a nursing home (each with its cost and a higher death hazard), claimed against any ltc insurance. |
+| `medicaid` | boolean |  | `False` | `LongTermCare.medicaid` | Medicaid pays long-term care once countable assets are spent down to the limit (a spouse at home keeps the resource allowance); the person pays their income above the personal needs allowance. Without it an unpaid care cost becomes debt. Needs long_term_care. |
 
 ## Donation
 
@@ -1194,6 +1198,7 @@ Size a purchase from available bank cash after protecting cash and paying costs.
 | `minimum_down_payment` | number | USD | **required** |  | Minimum cash down payment. |
 | `mortgage_limit` | number | USD | **required** |  | Maximum financing available at closing. |
 | `rate_pct` | number | percent | **required** |  | Mortgage APR for the new loan. |
+| `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of the quoted rate (semiannual quotes convert to the monthly equivalent). |
 | `term_years` | integer | years | **required** |  | Mortgage amortization in years. |
 | `down_payment_fraction` | number |  | `1.0` |  | Share of available cash to put down after costs and retained cash (0 to 1). |
 | `extra_down_payment` | number | USD | `0.0` |  | Cash to add to the chosen share, subject to available funds. |
@@ -1278,7 +1283,7 @@ Move cash from an owned bank into an earmark until its scheduled release.
 | `name` | string (optional) |  | — |  | Description shown in the event list. |
 | `action` | `"reserve_cash"` |  | **required** |  |  |
 | `bank` | string |  | **required** |  | Id of the owner's funding bank. |
-| `amount` | number | USD | **required** |  | Cash to earmark. |
+| `amount` | number | USD | **required** |  | Cash to earmark (less when the bank's cash after the year's unpaid tax falls short). |
 | `release_on` | date |  | **required** |  | Release date in a later month, before ordinary events that day. |
 
 ## ContributeEvent
@@ -1379,6 +1384,7 @@ Refinance a mortgage (``debt`` is the home's id) or a car or student loan: a new
 | `action` | `"refinance"` |  | **required** |  |  |
 | `debt` | string |  | **required** |  | Id of the home (its mortgage) or of the car / student loan. |
 | `rate_pct` | number | percent | **required** |  | New APR. |
+| `rate_compounding` | `"monthly"` \\| `"semiannual"` |  | `"monthly"` |  | Compounding of a mortgage's new quoted rate. Semiannual quotes are converted to the monthly equivalent. Car and student loans use monthly. |
 | `term_years` | integer (optional) | years | — |  | New term in years. |
 | `term_months` | integer (optional) | months | — |  | New term in months. |
 | `costs` | number | USD | `0.0` |  | Closing costs. |

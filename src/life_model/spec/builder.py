@@ -83,6 +83,8 @@ class BuiltHousehold:
     people: dict[str, Any] = field(default_factory=dict)
     items: dict[str, Any] = field(default_factory=dict)
     life_events: Any = None
+    #: Ids of homes whose purchase was skipped because the buyer had died; later events on them skip too.
+    skipped_homes: set[str] = field(default_factory=set)
 
     def item(self, key: str) -> Any:
         """The agent built for ``key`` (``KeyError`` when absent)."""
@@ -933,7 +935,11 @@ class _Builder:
                 escrow_monthly=m.escrow_monthly,
                 rate_compounding=m.rate_compounding,
                 renewal_state=None if renewal_state is None else MortgageRenewalState(**renewal_state.model_dump()),
-                prepayment_privilege=None if privilege is None else privilege.resolve(as_of, m.original_amount),
+                prepayment_privilege=(
+                    None
+                    if privilege is None
+                    else prepayment_privilege(privilege, as_of=as_of, default_basis=m.original_amount)
+                ),
                 **terms,
             )
             self._remember_loan(mortgage, m)
@@ -1039,6 +1045,9 @@ class _Builder:
             benefit_end_age=policy.benefit_end_age,
             benefits_taxable=policy.benefits_taxable,
             marketplace=_marketplace(policy.marketplace),
+            benefit_growth_pct=policy.benefit_growth_pct,
+            lifetime_benefit_max=policy.lifetime_benefit_max,
+            waive_premium_in_claim=policy.waive_premium_in_claim,
         )
 
     # --- SS, healthcare, giving ---
@@ -1254,7 +1263,7 @@ class _Builder:
                 if p.healthcare.medicare:
                     Medicare(person)
                 if p.healthcare.long_term_care:
-                    LongTermCare(person)
+                    LongTermCare(person, medicaid=p.healthcare.medicaid)
 
         # Build-time events (claiming age, fixed death age) adjust constructor inputs; resolve
         # them now that every Person exists (their ages anchor get_year_at_age).
@@ -1383,3 +1392,23 @@ def _marketplace(value):
     if value is None:
         return None
     return MarketplaceCoverage(slcsp_monthly=value.slcsp_monthly, advance_monthly=value.advance_monthly)
+
+
+def prepayment_privilege(terms: s.MortgagePrepaymentPrivilege, *, as_of: date, default_basis: float | None):
+    """The core annual lump-sum cap for spec ``terms``, opened in the contract year containing ``as_of``.
+
+    The basis is ``terms.basis_amount``, else ``default_basis`` (the original principal, or the balance
+    at renewal). A ValueError reports a cap with neither.
+    """
+    from ..housing.prepayment import MortgagePrepaymentPrivilege
+
+    basis = terms.basis_amount if terms.basis_amount is not None else default_basis
+    if basis is None:
+        raise ValueError("A prepayment cap needs a basis amount when the original principal is unknown")
+    return MortgagePrepaymentPrivilege(
+        anniversary=terms.anniversary,
+        annual_limit_pct=terms.annual_limit_pct,
+        basis_amount=basis,
+        as_of=as_of,
+        used=terms.used,
+    )

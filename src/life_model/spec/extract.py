@@ -841,7 +841,8 @@ class _Extractor:
             "term_months": None if whole else loan.term_months,
             "payment_monthly": None if abs(payment - default_payment) < 1e-9 else payment,
             "origination": None if loan.origination is None else f"{loan.origination[0]}-{loan.origination[1]:02d}",
-            "payments_made": None if made == 0 or made_from_origination is not None else made,
+            # The origination implies first payment the month after; a refinance pays in its own month.
+            "payments_made": None if made == 0 or made == made_from_origination else made,
             "extra_principal_monthly": loan.extra_principal_monthly,
             "schedule": getattr(loan, "schedule", "contract"),
         }
@@ -1067,6 +1068,9 @@ class _Extractor:
                     elimination_months=policy.elimination_months,
                     benefit_end_age=policy.benefit_end_age,
                     benefits_taxable=policy.benefits_taxable,
+                    benefit_growth_pct=policy.benefit_growth_pct,
+                    lifetime_benefit_max=policy.lifetime_benefit_max,
+                    waive_premium_in_claim=policy.waive_premium_in_claim,
                     marketplace=s.Marketplace(
                         slcsp_monthly=policy.marketplace.slcsp_monthly,
                         advance_monthly=policy.marketplace.advance_monthly,
@@ -1115,6 +1119,7 @@ class _Extractor:
             medical_costs_annual=override,
             medicare=bool(person.medicare),
             long_term_care=bool(person.long_term_care),
+            medicaid=any(care.medicaid for care in person.long_term_care),
         )
         active = flags.medical_costs or flags.medicare or flags.long_term_care or override is not None
         return flags if active else None
@@ -1167,8 +1172,8 @@ class _Extractor:
 
         Before the first step they are returned as written. Afterwards an event is re-timed to its
         remaining dates (and ``until`` for a recurring expense), because its anchors or earlier years
-        may already have fired. Keep a dated relative event tied to its anchor if both are pending
-        on the same day, so they still fire in that order.
+        may already have fired. Keep a relative event tied to its anchor if both are first pending on
+        the same date (year, month and day, dated or not), so they still fire in that order.
         """
         from ..lifeevents import LifeEvents
 
@@ -1198,14 +1203,14 @@ class _Extractor:
                 continue
             at = s.At(year=first_year, month=first_month, day=first_day)
             relative = source.at.relative
-            if first_day is not None and relative is not None:
+            if relative is not None:
                 anchor = by_spec_id.get(relative.after)
                 if anchor is not None and first_pending[id(anchor)] == (first_year, first_month, first_day):
                     at = source.at
             update: dict[str, Any] = {"at": at}
             if isinstance(source, s.RecurringExpenseEvent):
                 update["until"] = s.At(year=max(when[0] for when in dates[id(source)]))
-            if isinstance(source, s.MortgageMaturityEvent):
+            if isinstance(source, s.MortgageMaturityEvent | s.MortgagePrepaymentEvent):
                 owner = next((p for p in self.people() if any(self.item_id(h) == source.home for h in p.homes)), None)
                 if owner is not None:
                     update["person"] = self.pid(owner)
@@ -1216,10 +1221,16 @@ class _Extractor:
         from ..debt.bridge import DatedBridgeLine
 
         lines = {self.item_id(line): line for line in self.model.agents if isinstance(line, DatedBridgeLine)}
+        skipped = getattr(getattr(self.model, "household", None), "skipped_homes", set())
         events: list[s.Event] = []
         for source in self.pending_sources():
             if isinstance(source, s.Marriage):
                 continue
+            # A home whose purchase was skipped (the buyer had died) never exists: drop later events on it.
+            if _home_target(source) in skipped:
+                continue
+            if isinstance(source, s.MoveEvent) and source.sell_home in skipped:
+                source = source.model_copy(update={"sell_home": None})
             if isinstance(source, s.BridgeEvent) and (line := lines.get(source.bridge)) is not None:
                 if line.home.sold or line.person.is_deceased:
                     continue
@@ -1231,6 +1242,17 @@ class _Extractor:
             events.append(source)
         events += [record["event"] for record in self.build_time]
         return _sorted(events)
+
+
+def _home_target(event) -> str | None:
+    """The home id an event acts on (a refinance's ``debt`` when it names a home), else None."""
+    if isinstance(
+        event, s.SellHomeEvent | s.MortgageRenewalEvent | s.MortgageMaturityEvent | s.MortgagePrepaymentEvent
+    ):
+        return event.home
+    if isinstance(event, s.RefinanceEvent):
+        return event.debt
+    return None
 
 
 _DEFAULT_FIXED_NAMES = {"cd": "CD", "treasury": "Treasury", "i_bond": "I bond", "bond_fund": "Bond fund"}
