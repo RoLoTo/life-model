@@ -2062,8 +2062,9 @@ def _loan_lines(
     (an income-driven plan's match, forgiveness)."""
     name = name or getattr(loan, "name", None) or getattr(loan, "school_name", None) or type(loan).__name__
     principal_paid = paid - interest
+    interest_sink = getattr(loan, "interest_sink", f"interest: {name}")
     lines = [
-        _BillLine(interest, kind, member, f"interest: {name}", sink=f"interest: {name}"),
+        _BillLine(interest, kind, member, f"interest: {name}", sink=interest_sink),
         _BillLine(principal_paid, kind, member, f"principal: {name}", to_account=loan),
     ]
     unexplained = after - (before - principal_paid)
