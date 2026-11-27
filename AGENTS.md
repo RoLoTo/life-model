@@ -68,10 +68,12 @@ fixtures use only synthetic names (a test enforces an allowlist).
   at -100 in `pre_step`), then construction order.
 - **Settlement.** `Family.step` groups members into `TaxUnit`s (`people/tax_unit.py`): single filers
   and married couples (joint or separate). Each unit pays the month's bills, and in December the
-  year's taxes, through one **household waterfall** (`Family(withdrawal_order=)`, default bank -> fixed income ->
-  brokerage -> Roth basis -> pre-tax (sized for its own tax and penalty) -> Roth earnings -> emergency
-  reserves) across every member;
-  an unpaid gap becomes debt (`shortfall_debt` events). Settlement is order-independent:
+  year's taxes, through one **household waterfall** (`Family(withdrawal_order=, withdrawal_floors=)`,
+  default bank -> fixed income -> brokerage -> Roth basis -> pre-tax (sized for its own tax and
+  penalty) -> Roth earnings -> emergency reserves) across every member; optional household-wide
+  `withdrawal_floors` cap waterfall draws per non-bank source (`"roth"` covers both Roth steps) while
+  leaving RMDs, HSA medical reimbursements, Roth conversions, contribution plans and explicit events
+  unaffected. An unpaid gap becomes debt (`shortfall_debt` events). Settlement is order-independent:
   `tests/test_construction_order.py` builds households in shuffled construction orders and requires
   identical frames.
 - **The federal return.** `TaxUnit.get_income_taxes_due` computes the return the

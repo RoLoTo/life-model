@@ -143,6 +143,7 @@ class _Extractor:
             people=person_specs,
             relationships=self.relationships(people),
             withdrawal_order=self.withdrawal_order(),
+            withdrawal_floors=self.withdrawal_floors(),
             events=self.events(),
         )
 
@@ -153,6 +154,16 @@ class _Extractor:
         for family in (a for a in self.model.agents if isinstance(a, Family)):
             if family.members and tuple(family.withdrawal_order) != DEFAULT_WITHDRAWAL_ORDER:
                 return list(family.withdrawal_order)
+        return None
+
+    def withdrawal_floors(self) -> dict | None:
+        from ..people.family import Family
+        from ..people.tax_unit import validate_withdrawal_floors
+
+        for family in (a for a in self.model.agents if isinstance(a, Family)):
+            floors = validate_withdrawal_floors(getattr(family, "withdrawal_floors", None))
+            if family.members and floors:
+                return floors
         return None
 
     def meta(self) -> s.Meta:
@@ -534,6 +545,7 @@ class _Extractor:
                         name=account.name,
                         balance=account.balance,
                         release_on=account.release_on,
+                        interest_pct=account.interest_pct,
                     )
                 )
         for holding in person.fixed_income_holdings:
@@ -903,7 +915,9 @@ class _Extractor:
                         name=_none_if(line.name, f"Bridge on {line.home.name}"),
                         credit_limit=line.credit_limit,
                         rate_pct=line.yearly_interest_rate,
+                        interest_mode=line.interest_mode,
                         drawn_principal=float(line.drawn_principal),
+                        capitalized_interest=float(line.capitalized_interest),
                         accrued_interest=float(line.accrued_interest),
                         accrued_through=line.accrued_through,
                     )

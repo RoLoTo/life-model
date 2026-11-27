@@ -12,7 +12,7 @@ uses the order the user wrote things in: :func:`canonical` sorts every list into
 the builder then constructs, for all people at each step:
 
 1. model (:func:`create_model`: seed, scenario, economy overrides) and the one ``Family`` (with the
-   spec's household ``withdrawal_order``);
+   spec's household ``withdrawal_order`` and ``withdrawal_floors``);
 2. people (``Spending`` then ``Person``), in :func:`people_order` (marriage heads first, in
    ``relationships`` order, each followed by their spouse; then everyone else by id);
 3. bank accounts (the ``primary`` one first), then jobs (``Salary``, ``Job``), then 401ks, then
@@ -389,7 +389,9 @@ class _Builder:
         self.model = model
         self.spec = spec
         self.family = Family(
-            model, withdrawal_order=None if spec.withdrawal_order is None else tuple(spec.withdrawal_order)
+            model,
+            withdrawal_order=None if spec.withdrawal_order is None else tuple(spec.withdrawal_order),
+            withdrawal_floors=spec.withdrawal_floors,
         )
         self.built = BuiltHousehold(model=model, family=self.family, spec=spec)
 
@@ -640,6 +642,7 @@ class _Builder:
                 amount=account.balance,
                 schedule=self.event_schedule(),
                 release_on=account.release_on,
+                interest_pct=account.interest_pct,
             )
         if kind == "401k":
             from ..account.job401k import Job401kAccount
@@ -917,6 +920,8 @@ class _Builder:
                 drawn_principal=debt.drawn_principal,
                 accrued_interest=debt.accrued_interest,
                 accrued_through=debt.accrued_through,
+                interest_mode=debt.interest_mode,
+                capitalized_interest=debt.capitalized_interest,
             )
         raise NotImplementedError(f"debt kind {debt.kind!r} is not supported by the builder")
 

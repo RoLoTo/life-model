@@ -49,6 +49,7 @@ A complete household: metadata, optional economy overrides, people, relationship
 | `people` | list[[Person](#person)] |  | **required** |  | The people in the household (one family). |
 | `relationships` | [Relationships](#relationships) |  | {} |  | Marriages. |
 | `withdrawal_order` | list[`"bank"` \\| `"fixed_income"` \\| `"brokerage"` \\| `"roth_basis"` \\| `"pretax"` \\| `"roth_earnings"` \\| `"reserve"`] (optional) |  | — | `Family.withdrawal_order` | Household payment waterfall: the order sources are drawn to pay bills and taxes, across every member. Each source exactly once, starting with 'bank'. Defaults to bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve (fixed_income and reserve may be left out: they then take those places). |
+| `withdrawal_floors` | map[`"fixed_income"` \\| `"brokerage"` \\| `"pretax"` \\| `"roth"` \\| `"reserve"` → number] (optional) | USD | — | `Family.withdrawal_floors` | Household-wide minimum combined balance to keep in each named non-bank waterfall source ('roth' covers both 'roth_basis' and 'roth_earnings' against the combined Roth balance). Waterfall draws for bills and taxes stop at each floor and spill to the next source; statutory RMDs, HSA medical reimbursements, Roth conversions, contribution plans and explicit events still run. For cash floors, use a reserve bank account or SavingsPolicy.cash_floor. |
 | `events` | list[one of: [MarryEvent](#marryevent), [DivorceEvent](#divorceevent), [RetireEvent](#retireevent), [ChangeJobEvent](#changejobevent), [MoveEvent](#moveevent), [BuyHomeEvent](#buyhomeevent), [SellHomeEvent](#sellhomeevent), [OneTimeExpenseEvent](#onetimeexpenseevent), [RecurringExpenseEvent](#recurringexpenseevent), [ChangeSpendingEvent](#changespendingevent), [AddAccountEvent](#addaccountevent), [ReserveCashEvent](#reservecashevent), [ContributeEvent](#contributeevent), [StopContributionEvent](#stopcontributionevent), [ChangeContributionEvent](#changecontributionevent), [ConvertToRothEvent](#converttorothevent), [ClaimSocialSecurityEvent](#claimsocialsecurityevent), [DieEvent](#dieevent), [RefinanceEvent](#refinanceevent), [MortgageRenewalEvent](#mortgagerenewalevent), [MortgageMaturityEvent](#mortgagematurityevent), [MortgagePrepaymentEvent](#mortgageprepaymentevent), [HelocDrawEvent](#helocdrawevent), [DrawBridgeEvent](#drawbridgeevent), [RepayBridgeEvent](#repaybridgeevent), [DisabilityEvent](#disabilityevent)] |  | [] |  | Dated life events. |
 | `actuals` | map[integer → [ActualRecords](#actualrecords)] (optional) |  | — |  | What the household's real documents say, by tax year (filed 1040 lines, W-2s, 1099s, statement balances): read by 'life-model reconcile' and the backtest, ignored by the builder. Keep real documents in my-models/ (git-ignored). |
 
@@ -339,6 +340,7 @@ Builds: `CashReserve`.
 | `name` | string |  | `"Earmarked cash"` |  | Label used on the ledger. |
 | `balance` | number | USD | **required** |  | Starting earmarked balance. |
 | `release_on` | date |  | **required** |  | Calendar date when the balance becomes available. |
+| `interest_pct` | number | percent | `0.0` |  | Annual interest rate accrued using actual days/365 (compounded at calendar month ends and booked through release_on); taxed as ordinary interest. |
 
 ## FixedIncomeAccount
 
@@ -703,7 +705,7 @@ Builds: `HomeEquityLine`.
 
 ## BridgeLine
 
-Approved credit secured by the borrower's home with simple actual-days/365 interest.
+Approved credit secured by the borrower's home with actual-days/365 interest. ``interest_mode`` controls whether interest accrues simply on drawn principal (``"simple"``), capitalizes into the interest-bearing balance at each calendar month end (``"compound_monthly"``), or is billed monthly through the household payment waterfall (``"monthly_interest"``).
 
 Builds: `DatedBridgeLine`.
 
@@ -713,9 +715,11 @@ Builds: `DatedBridgeLine`.
 | `id` | string (optional) |  | — |  | Optional identifier for this debt, unique across the spec. Required when another entry references it (a 401k's job, an event's target, a relative event's anchor). |
 | `home` | string |  | **required** | `DatedBridgeLine.home` | Id of the home securing the line. |
 | `name` | string (optional) |  | — |  | Display name. |
-| `credit_limit` | number | USD | **required** |  | Maximum drawn principal in whole cents. |
-| `rate_pct` | number | percent | **required** |  | Annual simple interest rate. |
+| `credit_limit` | number | USD | **required** |  | Maximum drawn principal plus capitalized interest in whole cents. |
+| `rate_pct` | number | percent | **required** |  | Annual interest rate. |
+| `interest_mode` | `"simple"` \\| `"compound_monthly"` \\| `"monthly_interest"` |  | `"simple"` |  | How actual-days/365 interest is handled: 'simple' accrues on drawn principal only, 'compound_monthly' capitalizes unpaid interest at each calendar month end (counting capitalized interest toward credit_limit headroom), and 'monthly_interest' bills accrued interest monthly through the household waterfall. |
 | `drawn_principal` | number | USD | `0.0` |  | Opening drawn principal in whole cents. |
+| `capitalized_interest` | number | USD | `0.0` |  | Opening interest already capitalized into the interest-bearing balance in whole cents (only valid for 'compound_monthly' with drawn principal). |
 | `accrued_interest` | number | USD | `0.0` |  | Opening unpaid interest, which can include fractional cents. |
 | `accrued_through` | date (optional) |  | — |  | Date through which opening interest was calculated. |
 
@@ -1285,6 +1289,7 @@ Move cash from an owned bank into an earmark until its scheduled release.
 | `bank` | string |  | **required** |  | Id of the owner's funding bank. |
 | `amount` | number | USD | **required** |  | Cash to earmark (less when the bank's cash after the year's unpaid tax falls short). |
 | `release_on` | date |  | **required** |  | Release date in a later month, before ordinary events that day. |
+| `interest_pct` | number | percent | `0.0` |  | Annual interest rate accrued using actual days/365 (compounded at calendar month ends and booked through release_on); taxed as ordinary interest. |
 
 ## ContributeEvent
 

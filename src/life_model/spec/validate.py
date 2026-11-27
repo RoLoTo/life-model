@@ -264,6 +264,7 @@ class _SpecChecker:
         self.check_retirement_gaps()
         self.check_late_life_costs()
         self.check_cash_sweep()
+        self.check_withdrawal_floors()
         return self.findings
 
     # --- gaps an early retirement or a long run would silently leave out ---
@@ -400,6 +401,43 @@ class _SpecChecker:
             )
 
     # --- children (default band costs stack on top of spending) ---
+
+    def check_withdrawal_floors(self) -> None:
+        """Warn when a withdrawal floor names a source the household has no accounts for."""
+        if not self.spec.withdrawal_floors:
+            return
+        present: set[str] = set()
+        accounts = [a for p in self.spec.people for a in p.accounts]
+        for event in self.spec.events:
+            if isinstance(event, s.AddAccountEvent):
+                accounts.append(event.account)
+            elif isinstance(event, s.ConvertToRothEvent):
+                present.add("roth")
+        for person in self.spec.people:
+            if person.roth_conversion is not None:
+                present.add("roth")
+        for account in accounts:
+            if account.kind == "brokerage":
+                present.add("brokerage")
+            elif account.kind in ("traditional_ira", "hsa"):
+                present.add("pretax")
+            elif account.kind == "401k":
+                present.add("pretax")
+                present.add("roth")
+            elif account.kind == "roth_ira":
+                present.add("roth")
+            elif account.kind == "fixed_income":
+                present.add("reserve" if account.reserve else "fixed_income")
+            elif account.kind == "bank" and account.reserve:
+                present.add("reserve")
+        for source in self.spec.withdrawal_floors:
+            if source not in present:
+                self.warn(
+                    f"withdrawal_floors.{source}",
+                    f"withdrawal_floors sets a floor on {source!r}, but the household has no {source} accounts.",
+                    "remove the unused floor or add a matching account.",
+                    "unused_withdrawal_floor",
+                )
 
     def check_children(self) -> None:
         """Warn about every configured child-cost band a child gets by default (they come on top of the

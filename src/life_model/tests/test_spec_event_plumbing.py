@@ -16,9 +16,10 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..debt import terms
+from ..debt import bridge, terms
 from ..lifeevents import LifeEvent
 from ..model import EVENT_KIND_DOCS
+from ..people import tax_unit
 from ..spec import SpecWarning, build_household, spec_from_model, validate_spec
 from ..spec import events as spec_events
 from ..spec import schema as s
@@ -305,6 +306,12 @@ class TestSchemaIndependence(unittest.TestCase):
 
     def test_rate_compounding_matches_the_engine(self):
         self.assertEqual(typing.get_args(s.MortgageRateCompounding), typing.get_args(terms.MortgageRateCompounding))
+
+    def test_withdrawal_floor_source_matches_the_engine(self):
+        self.assertEqual(typing.get_args(s.WithdrawalFloorSource), tax_unit.WITHDRAWAL_FLOOR_SOURCES)
+
+    def test_bridge_interest_mode_matches_the_engine(self):
+        self.assertEqual(typing.get_args(s.BridgeInterestMode), typing.get_args(bridge.BridgeInterestMode))
 
 
 if __name__ == "__main__":

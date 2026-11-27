@@ -821,6 +821,15 @@ class CashReserveAccount(SpecModel):
         description="Starting earmarked balance.", unit="USD", gt=0, allow_inf_nan=False
     )
     release_on: date = spec_field(description="Calendar date when the balance becomes available.")
+    interest_pct: NonNegativePercent = spec_field(
+        0.0,
+        description=(
+            "Annual interest rate accrued using actual days/365 (compounded at calendar month ends and "
+            "booked through release_on); taxed as ordinary interest."
+        ),
+        unit="percent",
+        allow_inf_nan=False,
+    )
 
 
 class FixedIncomeAccount(SpecModel):
@@ -1801,8 +1810,18 @@ class HomeEquityLine(SpecModel):
         return self
 
 
+#: Interest accrual and servicing mode of a bridge line (``debt.bridge.BridgeInterestMode``).
+BridgeInterestMode = Literal["simple", "compound_monthly", "monthly_interest"]
+
+
 class BridgeLine(SpecModel):
-    """Approved credit secured by the borrower's home with simple actual-days/365 interest."""
+    """Approved credit secured by the borrower's home with actual-days/365 interest.
+
+    ``interest_mode`` controls whether interest accrues simply on drawn principal (``"simple"``),
+    capitalizes into the interest-bearing balance at each calendar month end
+    (``"compound_monthly"``), or is billed monthly through the household payment waterfall
+    (``"monthly_interest"``).
+    """
 
     CORE_CLASS = "DatedBridgeLine"
 
@@ -1811,11 +1830,33 @@ class BridgeLine(SpecModel):
     home: Identifier = spec_field(description="Id of the home securing the line.", core="DatedBridgeLine.home")
     name: str | None = spec_field(None, description="Display name.")
     credit_limit: NonNegativeMoney = spec_field(
-        description="Maximum drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+        description="Maximum drawn principal plus capitalized interest in whole cents.",
+        unit="USD",
+        multiple_of=0.01,
+        allow_inf_nan=False,
     )
-    rate_pct: NonNegativePercent = spec_field(description="Annual simple interest rate.", unit="percent")
+    rate_pct: NonNegativePercent = spec_field(description="Annual interest rate.", unit="percent")
+    interest_mode: BridgeInterestMode = spec_field(
+        "simple",
+        description=(
+            "How actual-days/365 interest is handled: 'simple' accrues on drawn principal only, "
+            "'compound_monthly' capitalizes unpaid interest at each calendar month end (counting "
+            "capitalized interest toward credit_limit headroom), and 'monthly_interest' bills accrued "
+            "interest monthly through the household waterfall."
+        ),
+    )
     drawn_principal: NonNegativeMoney = spec_field(
         0.0, description="Opening drawn principal in whole cents.", unit="USD", multiple_of=0.01, allow_inf_nan=False
+    )
+    capitalized_interest: NonNegativeMoney = spec_field(
+        0.0,
+        description=(
+            "Opening interest already capitalized into the interest-bearing balance in whole cents "
+            "(only valid for 'compound_monthly' with drawn principal)."
+        ),
+        unit="USD",
+        multiple_of=0.01,
+        allow_inf_nan=False,
     )
     accrued_interest: NonNegativeMoney = spec_field(
         0.0,
@@ -1833,6 +1874,10 @@ class BridgeLine(SpecModel):
             raise ValueError("Supply an accrued-through date exactly when there is opening principal")
         if self.accrued_interest and not self.drawn_principal:
             raise ValueError("Opening bridge interest requires drawn principal")
+        if self.capitalized_interest and (self.interest_mode != "compound_monthly" or not self.drawn_principal):
+            raise ValueError(
+                "Opening capitalized bridge interest requires interest_mode='compound_monthly' and drawn principal"
+            )
         return self
 
 
@@ -3109,6 +3154,15 @@ class ReserveCashEvent(EventBase):
         allow_inf_nan=False,
     )
     release_on: date = spec_field(description="Release date in a later month, before ordinary events that day.")
+    interest_pct: NonNegativePercent = spec_field(
+        0.0,
+        description=(
+            "Annual interest rate accrued using actual days/365 (compounded at calendar month ends and "
+            "booked through release_on); taxed as ordinary interest."
+        ),
+        unit="percent",
+        allow_inf_nan=False,
+    )
 
     @model_validator(mode="after")
     def _release_after_funding(self) -> "ReserveCashEvent":
@@ -3424,6 +3478,9 @@ EVENT_ACTIONS: tuple[str, ...] = (
 #: Payment sources of the household waterfall (``people.tax_unit.DEFAULT_WITHDRAWAL_ORDER``).
 WithdrawalSource = Literal["bank", "fixed_income", "brokerage", "roth_basis", "pretax", "roth_earnings", "reserve"]
 
+#: Non-bank waterfall sources that accept a balance floor (``people.tax_unit.WITHDRAWAL_FLOOR_SOURCES``).
+WithdrawalFloorSource = Literal["fixed_income", "brokerage", "pretax", "roth", "reserve"]
+
 
 # --- Top level -----------------------------------------------------------------------------------
 
@@ -3446,6 +3503,16 @@ class HouseholdSpec(SpecModel):
         "places).",
         core="Family.withdrawal_order",
     )
+    withdrawal_floors: dict[WithdrawalFloorSource, NonNegativeMoney] | None = spec_field(
+        None,
+        description="Household-wide minimum combined balance to keep in each named non-bank waterfall source "
+        "('roth' covers both 'roth_basis' and 'roth_earnings' against the combined Roth balance). Waterfall draws "
+        "for bills and taxes stop at each floor and spill to the next source; statutory RMDs, HSA medical "
+        "reimbursements, Roth conversions, contribution plans and explicit events still run. For cash floors, "
+        "use a reserve bank account or SavingsPolicy.cash_floor.",
+        unit="USD",
+        core="Family.withdrawal_floors",
+    )
     events: list[Event] = spec_field(default_factory=list, description="Dated life events.")
     actuals: ActualsByYear | None = spec_field(
         None,
@@ -3461,6 +3528,15 @@ class HouseholdSpec(SpecModel):
             from ..people.tax_unit import validate_withdrawal_order
 
             validate_withdrawal_order(value)
+        return value
+
+    @field_validator("withdrawal_floors", mode="before")
+    @classmethod
+    def _valid_floors(cls, value: Any) -> dict[str, float] | None:
+        if value is not None:
+            from ..people.tax_unit import validate_withdrawal_floors
+
+            return validate_withdrawal_floors(value) or None
         return value
 
     def person(self, person_id: str) -> Person:

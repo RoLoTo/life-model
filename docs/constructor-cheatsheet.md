@@ -26,7 +26,7 @@ copy, because agents step in `STEP_PRIORITY`, then construction, order.
 | `Home(value_growth_pct=None)` | economy `home_appreciation` = 4% | Homes appreciate at the economy's rate when given `None`. |
 | economy | mode `fixed` | The same rates every year: inflation 3%, wage growth 3%, equity 7%, bonds 3%, cash 0%, homes 4%. Use `scenario="stochastic"` (or `economy.mode: stochastic`) for random draws, `path` for scripted years. |
 | `LifeModel(start_year=None, end_year=None, seed=None)` | this year; start + 50; unseeded | Years are inclusive (`end_year - start_year + 1` steps). An unseeded model draws a fresh seed, so stochastic parts differ run to run; `RunResult.seed` records it. |
-| `Family(withdrawal_order=None)` | bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve | The household payment waterfall: bills and taxes are paid from banks, then non-reserve fixed income, brokerage sales, Roth basis, pre-tax withdrawals (sized for their own tax and penalty), Roth earnings, then emergency reserves (reserve banks and fixed income); any gap is carried as debt (`shortfall_debt` events). |
+| `Family(withdrawal_order=None, withdrawal_floors=None)` | bank, fixed_income, brokerage, roth_basis, pretax, roth_earnings, reserve; no floors | The household payment waterfall: bills and taxes are paid from banks, then non-reserve fixed income, brokerage sales, Roth basis, pre-tax withdrawals (sized for their own tax and penalty), Roth earnings, then emergency reserves (reserve banks and fixed income); any gap is carried as debt (`shortfall_debt` events). `withdrawal_floors` caps waterfall draws per non-bank source household-wide (`'roth'` covers both Roth steps) so each source keeps at least its floor before spilling to the next source; RMDs, HSA medical reimbursements, Roth conversions, contribution plans and explicit events still run. |
 | `CreditCard(rate_pct=None, payment_strategy=)` | 18% APR, PaymentStrategy.MINIMUM | Minimum payments (2% of the balance, at least $25) unless a strategy is given. |
 | `SocialSecurity(claim_age=None, earnings_history=None)` | the retirement age; no earnings | Benefits are claimed at the retirement age (an error below 62). With no earnings history the benefit is computed from the simulated wages only; the spec's `earnings_history` or `assumed_career_start_age` supplies the past. No `SocialSecurity` agent means no benefit at all. |
 | `SocialSecurity(pia_override_monthly=)` | used as is | An SSA statement's estimate assumes work at the latest earnings until full retirement age. Alone, the override ignores an earlier retirement (the spec validator warns); with the statement's `earnings_history` it is scaled for the years not worked. |
@@ -58,7 +58,7 @@ Each spec entry, the core class the builder constructs, the fields you must give
 | Withholding | `W4 \| FlatWithholding` | — | — |
 | W4Spec | `W4` | — | `multiple_jobs=False`, `dependents_annual=0.0`, `other_income_annual=0.0`, `deductions_annual=0.0`, `extra_monthly=0.0` |
 | BankAccount (`kind: bank`) | `BankAccount` | — | `company='Bank'`, `type='Checking'`, `balance=0.0`, `interest_pct='economy'`, `primary=False`, `reserve=False`, `joint=False` |
-| CashReserveAccount (`kind: cash_reserve`) | `CashReserve` | `balance`, `release_on` | `name='Earmarked cash'` |
+| CashReserveAccount (`kind: cash_reserve`) | `CashReserve` | `balance`, `release_on` | `name='Earmarked cash'`, `interest_pct=0.0` |
 | FixedIncomeAccount (`kind: fixed_income`) | `FixedIncomeHolding` | `instrument`, `face`, `rate_pct` | `tax_exempt=False`, `early_withdrawal_penalty_months=0`, `reserve=True`, `accrued_interest=0.0` |
 | BrokerageAccount (`kind: brokerage`) | `BrokerageAccount` | — | `company='Brokerage'`, `growth_pct='economy'`, `reinvest_dividends=True`, `joint=False` |
 | Job401k (`kind: 401k`) | `Job401kAccount` | — | `pretax_balance=0.0`, `roth_balance=0.0`, `pretax_contrib_pct=0.0`, `roth_contrib_pct=0.0`, `growth_pct='economy'`, `bonus_is_plan_pay=False`, `match_vesting_years=0`, `company_match_pct=0.0`, `after_tax_contrib_pct=0.0`, `in_plan_roth_conversion=False` |
@@ -75,7 +75,7 @@ Each spec entry, the core class the builder constructs, the fields you must give
 | StudentLoan (`kind: student`) | `StudentLoan` | `rate_pct` | `extra_principal_monthly=0.0`, `schedule='contract'`, `loan_type='unknown'`, `school='School'`, `in_deferment=False`, `repayment_plan='standard'`, `qualifying_payments=0` |
 | CreditCard (`kind: credit_card`) | `CreditCard` | `credit_limit` | `name='Card'`, `balance=0.0`, `payment_strategy='minimum'`, `payment_monthly=0.0`, `spending_charged_pct=0.0` |
 | HomeEquityLine (`kind: heloc`) | `HomeEquityLine` | `home`, `credit_limit`, `rate_pct` | `balance=0.0`, `improvement_balance=0.0`, `payment_strategy='interest_only'`, `payment_monthly=0.0` |
-| BridgeLine (`kind: bridge_line`) | `DatedBridgeLine` | `home`, `credit_limit`, `rate_pct` | `drawn_principal=0.0`, `accrued_interest=0.0` |
+| BridgeLine (`kind: bridge_line`) | `DatedBridgeLine` | `home`, `credit_limit`, `rate_pct` | `interest_mode='simple'`, `drawn_principal=0.0`, `capitalized_interest=0.0`, `accrued_interest=0.0` |
 | Home (`kind: home`) | `Home` | `purchase_price`, `expenses` | `name='Home'`, `value_growth_pct='economy'`, `down_payment=0.0`, `purchase=False`, `pmi=True` |
 | Mortgage | `Mortgage` | `rate_pct` | `extra_principal_monthly=0.0`, `schedule='contract'`, `rate_compounding='monthly'` |
 | MortgageRenewalState | `MortgageRenewalState` | `original_amount`, `rate_pct`, `payment_monthly`, `term_months`, `payments_made` | `grandfathered_cap=0.0` |
@@ -100,7 +100,7 @@ The owner argument links the object to its owner (a `Person`, a `Job`, or the `m
 | Class | Owner | Required | Optional (default) |
 |---|---|---|---|
 | `LifeModel` (life_model.model) |  | — | `end_year=None`, `start_year=None`, `seed=None`, `config=None`, `scenario=None`, `*collect_data=True`, `*start=None`, `*start_month=None`, `*collect='year'`, `*checks='off'`, `*collect_positions=False` |
-| `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None` |
+| `Family` (life_model.people.family) | `model` | `model` | `*withdrawal_order=None`, `*withdrawal_floors=None` |
 | `Person` (life_model.people.person) | `family` | `family`, `name`, `age`, `retirement_age`, `spending` | `*gender=GenderAtBirth.OTHER`, `*mortality_mode=MortalityMode.IMMORTAL`, `*death_age=None`, `*state=None`, `*birth=None`, `*residency=None`, `*widowed_year=None`, `*estimated_payments=None`, `*unpaid_bills_debt=0.0` |
 | `Spending` (life_model.people.person) | `model` | `model` | `base_annual=0`, `growth_pct=0`, `*categories=None`, `*schedule=None` |
 | `Job` (life_model.work.job) | `owner` | `owner`, `*company`, `*salary` | `*role='Employee'`, `*start_year=None`, `*end_year=None`, `*bonus=None`, `*raises=None`, `*kind='w2'`, `*expenses_annual=0.0`, `*payroll=None`, `*sep_account=None`, `*plan_contribution_percent=0.0`, `*sstb=False` |
